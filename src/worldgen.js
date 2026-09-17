@@ -2,7 +2,7 @@
 // Biomes: plains, forest, desert, mountains + cold/shallow/warm/deep oceans. Same seed => same terrain.
 
 import { fbm2, hash2, hash3, mulberry32 } from './math.js';
-import { BLOCK_BY_NAME, BLOCK_BY_ID } from './blocks.js';
+import { BLOCK_BY_NAME, BLOCK_BY_ID, isSolid } from './blocks.js';
 
 export const CHUNK = 16;
 export const WORLD_HEIGHT = 96;
@@ -280,4 +280,43 @@ export function terrainFingerprint(seed, samples = 64, spread = 480) {
     h = (h ^ (Math.imul(wx, 31) + wz)) | 0;
   }
   return (h >>> 0).toString(16);
+}
+
+/**
+ * Robustly find a safe land spawn near the world origin: a land column (elevation >= SEA_LEVEL)
+ * whose player-sized headspace (feet..feet+2) is clear of solid blocks (avoids tree trunks and
+ * ocean-only spawn regions). Deterministic for a seed. Pure — uses generateChunk + isSolid.
+ */
+export function findSafeSpawn(seed, maxRadius = 420, step = 4) {
+  const chunkCache = new Map();
+  const getBlock = (wx, y, wz) => {
+    if (y < 0) return BLOCK_BY_ID.get('bedrock');
+    if (y >= WORLD_HEIGHT) return 0;
+    const cx = Math.floor(wx / CHUNK);
+    const cz = Math.floor(wz / CHUNK);
+    const key = cx + ',' + cz;
+    let c = chunkCache.get(key);
+    if (!c) { c = generateChunk(cx, cz, seed); chunkCache.set(key, c); }
+    const bx = ((wx % CHUNK) + CHUNK) % CHUNK;
+    const bz = ((wz % CHUNK) + CHUNK) % CHUNK;
+    return c.data[((y * CHUNK) + bz) * CHUNK + bx];
+  };
+  for (let r = 0; r <= maxRadius; r += step) {
+    const points = [];
+    for (let dx = -r; dx <= r; dx += step) { points.push([dx, -r], [dx, r]); }
+    for (let dz = -r; dz <= r; dz += step) { points.push([-r, dz], [r, dz]); }
+    for (const [px, pz] of points) {
+      const c = columnInfo(px, pz, seed);
+      if (c.elevation < SEA_LEVEL) continue;
+      let top = -1;
+      for (let y = WORLD_HEIGHT - 1; y >= 0; y--) { if (isSolid(getBlock(px, y, pz))) { top = y; break; } }
+      if (top < 0) continue;
+      const feet = top + 2;
+      let clear = true;
+      for (let yy = feet; yy <= feet + 2; yy++) { if (isSolid(getBlock(px, yy, pz))) { clear = false; break; } }
+      if (!clear) continue;
+      return { x: px + 0.5, y: feet, z: pz + 0.5, yaw: 0, surfaceY: top, biome: c.biome };
+    }
+  }
+  return { x: 0.5, y: SEA_LEVEL + 8, z: 0.5, yaw: 0, surfaceY: SEA_LEVEL, biome: BIOMES.OCEAN_SHALLOW };
 }

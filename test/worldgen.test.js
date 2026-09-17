@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { columnInfo, generateChunk, terrainFingerprint, CHUNK, WORLD_HEIGHT, SEA_LEVEL, BIOMES } from '../src/worldgen.js';
+import { columnInfo, generateChunk, terrainFingerprint, CHUNK, WORLD_HEIGHT, SEA_LEVEL, BIOMES, findSafeSpawn } from '../src/worldgen.js';
 import { mulberry32, valueNoise2, fbm2, hash2 } from '../src/math.js';
 import { blockId, BLOCKS, breakableBlockCount, isSolid } from '../src/blocks.js';
 
@@ -80,6 +80,26 @@ describe('world generation', () => {
     const elev = oceanCol.ci.elevation;
     expect(c.get(lx, elev + 1, lz)).toBe(blockId('water'));
     expect(c.get(lx, SEA_LEVEL - 1, lz)).toBe(blockId('water'));
+  });
+});
+
+describe('safe spawn', () => {
+  it('findSafeSpawn returns land (not ocean) with clear headspace', () => {
+    const s = findSafeSpawn(SEED);
+    const { biome, elevation } = columnInfo(Math.floor(s.x), Math.floor(s.z), SEED);
+    expect(elevation).toBeGreaterThanOrEqual(SEA_LEVEL);
+    expect(biome).not.toContain('ocean');
+    expect(s.y).toBeGreaterThan(elevation);
+    // headspace clear
+    const c = generateChunk(Math.floor(s.x / CHUNK), Math.floor(s.z / CHUNK), SEED);
+    const bx = Math.floor(s.x) & 15, bz = Math.floor(s.z) & 15;
+    for (let yy = Math.floor(s.y); yy <= Math.floor(s.y) + 2; yy++)
+      expect(isSolid(c.get(bx, yy, bz))).toBe(false);
+  });
+  it('findSafeSpawn avoids the origin ocean basin', () => {
+    const s = findSafeSpawn(SEED);
+    const d = Math.hypot(s.x - 0.5, s.z - 0.5);
+    expect(d).toBeGreaterThanOrEqual(30); // spawn moved away from the deep-ocean origin
   });
 });
 

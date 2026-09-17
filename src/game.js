@@ -7,7 +7,7 @@ import { createRenderer, onResize } from './renderer.js';
 import { buildHUD, HUD_CSS } from './hud.js';
 import { buildAtlas, buildSprite } from './textures.js';
 import { blockDef, blockId, isSolid, isFluid, BLOCKS } from './blocks.js';
-import { SEA_LEVEL, columnInfo } from './worldgen.js';
+import { SEA_LEVEL, columnInfo, findSafeSpawn } from './worldgen.js';
 
 export function initGame({ seed }) {
   const container = document.getElementById('app');
@@ -18,15 +18,11 @@ export function initGame({ seed }) {
   world.atlas = atlas;
   world.meshGroup = meshGroup;
 
-  // spawn on land near origin
-  let spawn = { x: 0.5, y: SEA_LEVEL + 6, z: 0.5, yaw: 0 };
-  (function findSpawn() {
-    const { elevation } = columnInfo(0, 0, seed);
-    if (elevation < SEA_LEVEL - 1) return;
-    spawn = { x: 0.5, y: elevation + 2, z: 0.5, yaw: 0 };
-  })();
+  // spawn on safe land near origin (robust: origin may be in an ocean basin)
+  const spawn = findSafeSpawn(seed);
 
   const player = new Player(world, spawn);
+  player.pitch = -0.35; // look slightly down at terrain on spawn
   const hud = buildHUD();
   hud.setSeed(seed);
 
@@ -163,14 +159,13 @@ export function initGame({ seed }) {
     last = now;
 
     player.sprinting = keys['ControlLeft'] && !keys['ShiftLeft'] && !player.inFluid();
+    // load/stream chunks BEFORE physics so the player never moves into unloaded void
+    world.updateAround(player.pos.x, player.pos.z);
+    world.rebuildDirty();
     player.update(dt);
 
     camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
-
-    // chunk stream
-    world.updateAround(player.pos.x, player.pos.z);
-    world.rebuildDirty();
 
     // block highlight + label
     const dir = player.forward();
