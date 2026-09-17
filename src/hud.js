@@ -64,6 +64,20 @@ export function buildHUD() {
       const filled = Math.round(val / 20 * max);
       cells.forEach((c, i) => c.classList.toggle('full', i < filled));
     },
+    setArmorBar(v) { this.setBar('#armor', Math.min(20, v), 4); },
+    setInfo(html) { root.querySelector('#seedbox').textContent = html || ''; },
+    message(text) {
+      let el = root.querySelector('#game-msg');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'game-msg';
+        root.appendChild(el);
+      }
+      el.textContent = text;
+      el.classList.remove('show');
+      void el.offsetWidth; // restart animation
+      el.classList.add('show');
+    },
     setCoords(p) { root.querySelector('#coords').textContent = `XYZ ${Math.floor(p.x)} / ${Math.floor(p.y)} / ${Math.floor(p.z)}`; },
     setFps(f) { root.querySelector('#fps').textContent = f + ' FPS'; },
     setSeed(s) { root.querySelector('#seedbox').textContent = 'Seed ' + s; },
@@ -116,6 +130,11 @@ export const HUD_CSS = `
 #inventory-panel .inv-slot .idx{position:absolute;left:2px;top:0;font-size:9px;opacity:0.6}
 #inventory-panel .inv-title{font-size:14px;margin-bottom:6px;color:#ffd24a}
 #help{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);bottom:74px;font-size:12px;background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:4px;display:none}
+#game-msg{position:absolute;top:12%;left:50%;transform:translateX(-50%);font-size:15px;background:rgba(0,0,0,0.55);padding:5px 12px;border-radius:4px;opacity:0;transition:opacity .3s}
+#game-msg.show{opacity:1}
+#daynightbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:10px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.4);border-radius:5px}
+#daynightbar .dot{position:absolute;top:-3px;width:14px;height:14px;border-radius:50%;background:#ffd24a;transform:translateX(-50%)}
+#daynightbar .phase{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:11px}
 #menu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20;display:flex;align-items:center;justify-content:center;color:#fff;font-family:ui-sans-serif,system-ui;text-align:center;cursor:pointer}
 #menu-overlay .inner{background:rgba(30,30,40,0.92);padding:30px 40px;border-radius:8px;border:2px solid rgba(255,255,255,0.3)}
 #menu-overlay h1{font-size:22px;margin:0 0 6px}

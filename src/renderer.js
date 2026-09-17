@@ -27,7 +27,7 @@ export function createRenderer(container) {
   const meshGroup = new THREE.Group();
   scene.add(meshGroup);
 
-  return { renderer, scene, camera, meshGroup };
+  return { renderer, scene, camera, meshGroup, amb, hemi, sun };
 }
 
 export function onResize(renderer, camera, container) {

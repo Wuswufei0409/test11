@@ -62,6 +62,7 @@ export class World {
     const bz = ((wz % CHUNK) + CHUNK) % CHUNK;
     const c = this.chunks.get(this.key(cx, cz));
     if (!c) return false;
+    if (!c.modified) c.modified = new Set();
     c.data[((y * CHUNK) + bz) * CHUNK + bx] = idv;
     c.modified.add(bx * WORLD_HEIGHT * CHUNK + y * CHUNK + bz);
     this.remeshKey(this.key(cx, cz));
@@ -83,6 +84,7 @@ export class World {
     const k = this.key(cx, cz);
     if (this.chunks.has(k)) return;
     const gen = generateChunk(cx, cz, this.seed);
+    gen.modified = new Set(); // block-level dirty overlay used by setBlock
     this.chunks.set(k, gen);
     this.modifiedChunks.add(k);
   }
