@@ -1,10 +1,10 @@
-# test11 — Final Acceptance Report (I1 / MUL-69)
+# test11 — Final Acceptance Report (I1/MUL-69 → I2/MUL-81, 全 20 项)
 
 **Project**: Voxel Sandbox Survival Game (non-official, MC Bedrock 1.4.2-inspired Web replica)
 **Repo**: https://github.com/Wuswufei0409/test11 (main)
 **Public HTTPS (no login)**: https://wuswufei0409.github.io/test11/
 **Goal**: `1d025a52-779c-4d96-966d-b2bf987a8c9b` · **Graph**: `06de733f-4f49-4be4-9b20-0235565cd9d4`
-**Integration commit**: `36c8bdb` (+ recorder/perf tooling; see `git log`)
+**Integration commit**: `5256cac` (main HEAD; I1 e1d342e + W5 C14-C17 water module merged & redeployed)
 
 Scoring: binary per standard (all requirements met + independently reviewed evidence → 5; else 0).
 Partial implementation is noted but not counted. Evidence must trace to the reviewed version.
@@ -28,16 +28,16 @@ Partial implementation is noted but not counted. Evidence must trace to the revi
 | 11 | 陆地生物 (pigs/cows/sheep/chicken/zombie/spider/creeper) | **5** | PASS (W4) | W4 review MUL-68 PASS |
 | 12 | 战斗装备 | **5** | PASS (W4) | W4 review MUL-68 PASS |
 | 13 | 农业 | **5** | PASS (W4) | W4 review MUL-68 PASS |
-| 14 | 水体核心行为 | **0** | NOT DONE | deferred to water module (C14–C17) |
-| 15 | 海洋内容 | **0** | NOT DONE | deferred to water module (C14–C17) |
-| 16 | 水生生物 | **0** | NOT DONE | deferred to water module (C14–C17) |
-| 17 | 三叉戟 | **0** | NOT DONE | deferred to water module (C14–C17) |
+| 14 | 水体核心行为 | **5** | PASS (W5) | W5 review MUL-80 PASS: oxygen bar depletes 9.77→8.67 + drown; `evidence/w5_c14_underwater.png` |
+| 15 | 海洋内容 | **5** | PASS (W5) | W5 review MUL-80 PASS: coral/kelp/seagrass/ice/treasure/wreck all generate; buried treasure digs gold; `evidence/w5_c15_ocean_treasure.png` |
+| 16 | 水生生物 | **5** | PASS (W5) | W5 review MUL-80 PASS: dolphin/cod/salmon/tropical fish, pufferfish inflated + damage, fish bucket catch & release; `evidence/w5_c16_*.png` |
+| 17 | 三叉戟 | **5** | PASS (W5) | W5 review MUL-80 PASS: throw/retrieve/durability, Impaling + Channeling lightning, Loyalty/Riptide; `evidence/w5_c17_trident.png` |
 | 18 | 存档 (local save/load) | **5** | PASS (W3) | W3 review MUL-66 PASS |
 | 19 | 性能 (6 chunks/30 entities) | host-env | MEASURED | `evidence/perf_raw.json` — see C19 below |
 | 20 | 工程交付 (CI/docs/license/architecture/limits + this report) | **5** | PASS | this report · `.github/workflows/{ci,pages}.yml` |
 
-**Total now**: 17 standards scored = 85 pts of the implemented core (C01–C13 + C18 all 5 → 70, C20 = 5, C19 host-dependent).
-**Not yet implemented**: C14–C17 (water/ocean/aquatic/trident) — planned as a follow-up graph revision.
+**Total now**: **20/20 standards implemented**. C01–C13, C18, C20 = 5 each; C14–C17 = 5 each via W5; C19 measured (host-dependent, GPU threshold evaluated on benchmark machine).
+**Version diff vs Bedrock 1.4.2**: non-official Web replica; sub-systems re-created from behavior (see README limits: spherical creeper blast, single-slot armor, C19 GPU threshold pending).
 
 ---
 
@@ -77,9 +77,11 @@ The ≥30 FPS / P95≤50 ms thresholds are evaluated on the designated benchmark
 - W2 → MUL-64 PASS (C04/C05/C06), receipt `1345327b-cab3-4f37-b594-a712e03297d6`
 - W3 → MUL-66 PASS (C07/C08/C18)
 - W4 → MUL-68 PASS (C09–C13)
-- I1 → MUL-70 (this integration) — pending reviewer verdict.
+- W5 → MUL-80 PASS (C14–C17); prior FAIL receipts 272e4082/d60da2a7; final receipt on `5256cac` (canonical `scripts/smoke_w5.cjs`, 0 console errors)
+- I1 → MUL-70 PASS (C01/C19/C20)
+- I2 → MUL-82 (this final integration) — pending reviewer verdict.
 
 ## Remaining risk / known limits
-- C14–C17 pending (water depth/physics, ocean content, aquatic mobs, trident) — next graph revision.
-- Creeper blast is spherical (no blast resistance); armor is a single bonus (not per-slot) — noted in README.
-- Under headless CPU rendering FPS is ~20; C19 threshold assumes the designated benchmark machine.
+- Creeper blast is spherical (no blast resistance); armor is a single bonus (not per-slot); trident enchant breadth — noted in README.
+- Under headless CPU rendering the game-loop frame time is ~0.4 s; the C19 ≥30 FPS / P95≤50 ms threshold is evaluated on the designated benchmark (GPU) machine by the reviewer.
+- Deep-water vertical movement is simplified; water is a surface layer (underwater rendering / O₂ verified in W5).
