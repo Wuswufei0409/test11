@@ -40,6 +40,12 @@ const DEFS = [
   { id: 31, name: 'granite',   top: [150,114,100], side: [150,114,100], bot: [150,114,100], hardness: 1.5, solid: true, opaque: true },
   { id: 32, name: 'bricks',    top: [170,105,95], side: [170,105,95], bot: [170,105,95], hardness: 2.0, solid: true, opaque: true },
   { id: 33, name: 'mossy_cobblestone', top: [104,120,96], side: [104,120,96], bot: [104,120,96], hardness: 2.0, solid: true, opaque: true },
+  // W3 craftable blocks: workbench, furnace, chest, torch + underwater representative 'sponge'
+  { id: 34, name: 'sponge',      top: [214,196,92], side: [214,196,92], bot: [214,196,92], hardness: 0.6, solid: true, opaque: true },
+  { id: 35, name: 'chest',       top: [150,112,64], side: [133,97,53], bot: [150,112,64], hardness: 2.5, solid: true, opaque: true },
+  { id: 36, name: 'furnace',     top: [116,116,116], side: [126,118,108], bot: [116,116,116], hardness: 3.5, solid: true, opaque: true },
+  { id: 37, name: 'torch',       top: [255,214,110], side: [150,118,64], bot: [150,118,64], hardness: 0, solid: false, opaque: false, plant: true },
+  { id: 38, name: 'crafting_table', top: [168,132,74], side: [136,104,60], bot: [150,112,64], hardness: 2.5, solid: true, opaque: true },
 ];
 
 export const BLOCKS = DEFS.map((d) => ({ ...d }));
