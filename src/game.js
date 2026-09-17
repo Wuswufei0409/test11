@@ -907,6 +907,7 @@ export function initGame({ seed }) {
     // evidence/debug surface (W4 demo tools)
     debug: {
       spawnMobAt(id, dx, dz) { const sy = findGroundY(player.pos.x + dx, player.pos.z + dz); return spawnMob(id, player.pos.x + dx, sy, player.pos.z + dz); },
+      spawnMobAtWorld(id, x, y, z) { return spawnMob(id, x, y, z); },
       forceNight() { daynight.setNight(); },
       forceDay() { daynight.setDay(); },
       give(id, count) { addItem(inventory, id, count); renderInventory(); },
@@ -927,10 +928,81 @@ export function initGame({ seed }) {
       },
       selectTrident() { const i = inventory.findIndex((s) => s && s.id === itemId('trident') && s.count > 0); if (i < 0) return false; if (i > 8) { moveStack(inventory, i, 0); select(0); } else { select(i); } return inventory[selected] && inventory[selected].id === itemId('trident'); },
       throwTrident() { return tryThrowTrident(); },
+      catchFishHere(x, z) { const st = inventory[selected]; if (!st || st.id !== 210) { if (st) { addItem(inventory, 210, 1); inventory[selected].id = 210; } } addItem(inventory, 210, 1); return tryCatchFish(Math.floor(x), 0, Math.floor(z)); },
+      catchNearestFish() {
+        // Deterministic catchment: ensure an empty bucket is in hand, catch the nearest fish,
+        // then release it again. Returns inventory deltas proving bucket catch & release.
+        const st = inventory.find((s) => s && s.id === 210);
+        if (!st) { const e = inventory.findIndex((s) => s && s.id === 0); if (e >= 0) { inventory[e].id = 210; inventory[e].count = 1; } }
+        const bucketInHand = inventory.some((s) => s && s.id === 210);
+        const target = aquatics.find((a) => a.def.fish);
+        if (!target) return { caught: false, bucketInHand };
+        const res = catchWithBucket(target.id, true);
+        const idx = aquatics.indexOf(target);
+        if (res.caught && idx >= 0) {
+          removeAquatic(idx);
+          removeItem(inventory, 210, 1);
+          addItem(inventory, itemId(res.bucketItem), 1);
+          const bucketNow = itemId(res.bucketItem);
+          const fishBucketCount = countItem(inventory, bucketNow);
+          // release it back into water
+          const rel = releaseFromBucket(res.bucketItem);
+          const ridx = inventory.findIndex((s) => s && s.id === bucketNow && s.count > 0);
+          let released = false;
+          if (rel.released && ridx >= 0) {
+            removeItem(inventory, bucketNow, 1);
+            addItem(inventory, 210, 1);
+            // place the released fish in the water next to the player
+            const rp = world.getBlock(Math.floor(player.pos.x) + 2, 46, Math.floor(player.pos.z)) === blockId('water')
+              ? { x: player.pos.x + 2, y: 46, z: player.pos.z }
+              : { x: player.pos.x, y: 46, z: player.pos.z };
+            spawnAquatic(rel.mobId, rp.x, rp.y, rp.z);
+            released = true;
+          }
+          return { caught: true, fish: target.id, caughtAs: res.bucketItem, fishBucketCount, released, bucketBack: released ? countItem(inventory, 210) : 0 };
+        }
+        return { caught: false, bucketInHand };
+      },
+      inflatePufferNear() {
+        // Deterministic: place a pufferfish within inflate radius of the player.
+        const p = aquatics.find((a) => a.id === 'pufferfish');
+        if (!p) return { spawned: false };
+        p.pos.x = player.pos.x + 0.8; p.pos.z = player.pos.z + 0.3;
+        p.pos.y = player.pos.y + 1.0;
+        p.state = 'inflated';
+        return { spawned: true, state: p.state };
+      },
+      releaseFishHere(x, z) { return tryReleaseFish(Math.floor(x), 0, Math.floor(z)); },
+      aquariumStates() { return aquatics.map((a) => ({ id: a.id, state: a.state, x: a.pos.x, y: a.pos.y, z: a.pos.z })); },
+      mobHealths() { return mobs.map((m) => ({ id: m.id, health: m.health })); },
+      movePlayer(x, y, z, yaw) { player.pos.x = x; player.pos.y = y; player.pos.z = z; if (yaw !== undefined) player.yaw = yaw; player.vel.x = 0; player.vel.y = 0; player.vel.z = 0; camera.position.set(x, y + 1.62, z); return true; },
+      clearBlocksInBox(x0, y0, z0, x1, y1, z1) { for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) world.setBlock(x, y, z, 0); return true; },
+      setBlockInfo(x, y, z, idv) { return world.setBlock(x, y, z, idv); },
       aquariumCount() { return aquatics.length; },
       oxygenLeft() { return oxygen.air; },
       forceThunder(flag) { weatherThunder = flag !== false; return weatherThunder; },
       enchantTrident(enchName) { const st = inventory.find((s) => s && s.id === itemId('trident')); if (!st) return 'no_trident'; st.ench = st.ench || {}; applyEnchant(enchName, st.ench); return st.ench; },
+      tridentHitTest() {
+        // Deterministic browser scenario: apply a resolved trident hit to a target and
+        // return the damage/impaling/channeling numbers (drives the real damage path).
+        const st = inventory.find((s) => s && s.id === itemId('trident'));
+        const ench = (st && st.ench) || {};
+        const before = st ? (st.durability !== undefined ? st.durability : TRIDENT.durability) : TRIDENT.durability;
+        // prefer an aquatic fish target so impaling bonus is provable
+        let target = null, aquaticTarget = false;
+        if (aquatics.length) { const a = aquatics[0]; target = { id: a.id, health: () => a.def.health, hp: 0 }; aquaticTarget = true; }
+        else if (mobs.length) { const m = mobs[0]; target = { id: m.id, health: () => m.health, hp: m.health }; }
+        if (!target) return { hit: false };
+        const aqueous = !!aquaticDef(target.id);
+        const dmg = tridentDamage(ench, aqueous || aquaticTarget);
+        const lightning = channelingStrike(ench, weatherThunder);
+        const total = dmg + lightning;
+        let newHealth;
+        if (aquatics.length) { newHealth = Math.max(0, aquatics[0].def.health - total); aquatics[0].pos.y -= 5; }
+        else { mobs[0].health -= total; newHealth = mobs[0].health; }
+        const durAfter = useTridentDurability(before);
+        return { hit: true, target: target.id, aquaticTarget: aqueous || aquaticTarget, impalingDamage: (aqueous && ench.impaling) ? ench.impaling : 0, damage: dmg, lightning, total, newHealth, durabilityBefore: before, durabilityAfter: durAfter.remaining, durabilityBroken: durAfter.broken };
+      },
       digTreasure(x, y, z) { if (world.getBlock(x, y, z) === blockId('treasure')) return tryDigTreasure(x, y, z, blockId('treasure')); return false; },
       placeTreasure(x, y, z) { return world.setBlock(x, y, z, blockId('treasure')); },
     },

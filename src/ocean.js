@@ -41,14 +41,13 @@ export function oceanFeature(wx, wz, seed, biome, surfaceY) {
 
   // icebergs only on cold ocean (packed surface)
   if (isCold && h < OCEAN_FEATURES.icebergChance) return { tag: 'iceberg' };
-  // coral reefs on warm shallow floor (needs near-surface floor)
+  // non-overlapping probability bands so every feature is reachable:
+  // coral [.., coral), kelp [coral, coral+kelp), seagrass [kelp.., 0.10)
   if (isWarm && surfaceY > 24 && h < OCEAN_FEATURES.coralChance) return { tag: 'coral' };
-  // kelp on shallow floor
   if (isShallow && surfaceY > 26 && h >= OCEAN_FEATURES.coralChance && h < OCEAN_FEATURES.coralChance + OCEAN_FEATURES.kelpChance) return { tag: 'kelp' };
-  // seagrass on sandy shallow floor
-  if (isWarm && surfaceY > 26 && h >= 0.05 && h < 0.05 + OCEAN_FEATURES.seagrassChance) return { tag: 'seagrass' };
-  // buried treasure on shallow sandy floor
-  if (isShallow && surfaceY > 24 && h >= 0.09 && h < 0.09 + OCEAN_FEATURES.treasureChance) return { tag: 'treasure' };
+  if (isWarm && surfaceY > 26 && h >= 0.05 && h < 0.10) return { tag: 'seagrass' };
+  // buried treasure on shallow sandy floor (disjoint band [0.10, 0.104) so it actually appears)
+  if (isShallow && surfaceY > 24 && h >= 0.10 && h < 0.10 + OCEAN_FEATURES.treasureChance) return { tag: 'treasure' };
   // shipwreck & ruins across ocean (rare, on any floor)
   if (h >= 0.14 && h < 0.14 + OCEAN_FEATURES.wreckChance) return { tag: 'wreck' };
   if (h >= 0.16 && h < 0.16 + OCEAN_FEATURES.ruinChance) return { tag: 'ruin' };

@@ -127,19 +127,36 @@ describe('C15 ocean content', () => {
     expect(loot.gold_ingot).toBeGreaterThanOrEqual(1);
   });
 
-  it('ocean features are present somewhere in a large generated world', () => {
-    const found = new Set();
-    for (let cx = -12; cx <= 12; cx++)
-      for (let cz = -12; cz <= 12; cz++) {
+  it('ocean features are actually present in generated world (non-vacuous)', () => {
+    const counts = { kelp: 0, seagrass: 0, coral_block: 0, coral_plant: 0, iceberg: 0, wreck: 0, treasure: 0 };
+    const ids = {
+      kelp: blockId('kelp'), seagrass: blockId('seagrass'),
+      coral_block: blockId('coral_block'), coral_plant: blockId('coral_plant'),
+      iceberg: blockId('iceberg_ice'), wreck: blockId('wreck_planks'),
+      treasure: blockId('treasure'),
+    };
+    for (let cx = -24; cx <= 24; cx++)
+      for (let cz = -24; cz <= 24; cz++) {
         const c = generateChunk(cx, cz, SEED);
-        for (let bx = 0; bx < 16; bx++) for (let lz = 0; lz < 16; lz++)
-          for (let y = 20; y <= SEA_LEVEL; y++) {
-            const id = c.get(bx, y, lz);
-            if (id === blockId('kelp') || id === blockId('seagrass') || id === blockId('coral_block')) found.add(c.idOfBlock ? 'x' : blockDef(id).name);
-          }
+        for (let i = 0; i < c.data.length; i++) {
+          const id = c.data[i];
+          if (id === ids.kelp) counts.kelp++;
+          else if (id === ids.seagrass) counts.seagrass++;
+          else if (id === ids.coral_block) counts.coral_block++;
+          else if (id === ids.coral_plant) counts.coral_plant++;
+          else if (id === ids.iceberg) counts.iceberg++;
+          else if (id === ids.wreck) counts.wreck++;
+          else if (id === ids.treasure) counts.treasure++;
+        }
       }
-    // The exact set depends on seed; we assert the generator runs and returns valid chunks
-    expect(found.size).toBeGreaterThanOrEqual(0);
+    // These are deterministic counts for the fixed seed; assert real presence (not > =0).
+    expect(counts.kelp).toBeGreaterThan(500);
+    expect(counts.seagrass).toBeGreaterThan(500);
+    expect(counts.coral_block).toBeGreaterThan(300);
+    expect(counts.coral_plant).toBeGreaterThan(200);
+    expect(counts.iceberg).toBeGreaterThan(100);
+    expect(counts.wreck).toBeGreaterThan(100);
+    expect(counts.treasure).toBeGreaterThan(50);
   });
 });
 

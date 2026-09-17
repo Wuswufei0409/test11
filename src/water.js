@@ -3,9 +3,10 @@
 // Everything deterministic and unit-testable; the game layer drives these.
 
 export const MAX_AIR = 10;         // oxygen bubbles, all full = 10
+// MC-like full tank lasts ~15 underwater seconds: 10 bubbles drain over 15s.
+export const AIR_DRAIN_FULL_SWIM = MAX_AIR / 15.0;  // ~0.667 bubbles/sec submerged
+export const AIR_REGEN_PER_SEC = 20.0;              // bubbles/sec regained in air (refills fast)
 export const DROWN_PERIOD = 1.0;   // seconds between 1-heart drown ticks at zero air
-export const AIR_DRAIN_FULL_SWIM = 1.0 / 15;   // bubbles lost per second while submerged
-export const AIR_REGEN_PER_SEC = 5.0;          // bubbles regained per second in air
 
 /**
  * Oxygen tank. Drains while submerged (head in water), refills in air.
@@ -104,8 +105,8 @@ export function floatBuoyancy(itemY, waterTopY, velY) {
  */
 export function underwaterVisibility(depthBelowSurface) {
   if (depthBelowSurface <= 0) return 1;
-  const d = Math.min(6, depthBelowSurface);
-  return Math.max(0.05, 1 - d * 0.16);
+  const d = Math.min(8, depthBelowSurface);
+  return Math.max(0.22, 1 - d * 0.09);
 }
 
 /**
