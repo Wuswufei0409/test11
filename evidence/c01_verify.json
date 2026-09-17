@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-09-17T13:13:37.963Z",
+  "url": "https://wuswufei0409.github.io/test11/",
+  "first_open": {
+    "t_to_game_seconds": 9.114,
+    "reached": true
+  },
+  "refresh": {
+    "t_to_game_seconds_after_refresh": 1,
+    "white_screen": false
+  },
+  "after_refresh": {
+    "canvas": "ref: <Node>",
+    "appChildren": 1,
+    "has3d": true,
+    "bodyBg": "rgb(0, 0, 0)"
+  },
+  "console_page_errors_first": [],
+  "console_page_errors_after_refresh": [],
+  "blocking_error_free": true
+}

@@ -107,3 +107,45 @@ proves reproducibility.
   oceans content, saving and performance tuning land in later modules.
 - Neighbor-chunk face culling is disabled at chunk borders (minor internal-seam overdraw).
 - Water is a translucent flat layer (deeper fluid behavior is a later module).
+
+## I1 — Integration, public deploy, performance & evidence (C01/C19/C20)
+
+**Public HTTPS** (no login, no install): <https://wuswufei0409.github.io/test11/>  — served from `main` via GitHub Actions (Pages). Asserted non-official/independent.
+
+**How to run**
+```bash
+npm install
+npm test             # core logic (world, worldgen, crafting, tools, furnace, save, survival, mobs, combat, farming, day/night, inventory, mining, player)
+npm run build        # production build -> dist/
+node scripts/health_check.mjs      # deploy health check on the built artifact
+node scripts/fixed_seed_smoke.mjs  # C03 seed determinism (fingerprint reproducible)
+node scripts/verify_c01.cjs        # C01: first-open within 60s, refresh no white-screen, no blocking errors (needs a running server)
+node scripts/perf.cjs <url> <sec>  # C19 headless perf benchmark (view distance 6, 30 mobs)
+```
+
+**Performance (C19)** — headless Chromium (SwiftShader WebGL), view distance 6 chunks, 30 active entities,
+fixed seed `20260917`, 1280x720. Raw sample data + methodology in `evidence/perf_raw.json`; summary in the
+final report (`evidence/final_report.md`).
+
+**CI (C20)** — `.github/workflows/ci.yml` runs build + core-logic tests + fixed-seed smoke on every push/PR.
+Deploy `.github/workflows/pages.yml` builds, health-checks, and publishes to GitHub Pages.
+
+## Architecture
+- `src/worldgen.js` seeded terrain (biomes, chunk gen, terrain footprint, safe spawn)
+- `src/world.js` chunk store/collision (RENDER_DISTANCE=6)
+- `src/renderer.js` + `src/textures.js` voxel meshing, fog, sky, first-person hand, generated pixel textures
+- `src/game.js` game loop, input, raycast, mining/placing, drops, HUD wiring, integration seam
+- `src/{inventory,crafting,recipes,tools,furnace,save,items}.js` inventory, crafting (`2x2/3x3` + recipe book), tool tiers (C07/C08), smelting, local save (C18)
+- `src/{survival,daynight,mobs,combat,farming}.js` survival/day-night/mobs/combat/farming (C09–C13)
+- Rendering/animation via **Three.js** (allowed render library; no game engine).
+
+## Assets & license
+All textures/geometry are **original, generated at runtime** (procedural pixel colors) — no Minecraft assets,
+textures, models, audio or trademarks are copied. This is an independent, **non-official** educational/experimental
+project not affiliated with Mojang/Microsoft. Code is MIT (`LICENSE`).
+
+## Known limitations (honest)
+- Water is a translucent flat layer; deep water physics remain for a later module (C14–C17 underwater/ocean content pending).
+- The wrong-tool restriction (C08) is enforced in `tools.js` for drops; pickaxe-tier gating is the main enforcement.
+- Armor is a single aggregate bonus (no per-slot armor), creeper blast is a spherical attenuation (no blast-resistance).
+- Under headless SwiftShader (CPU-only GL) the game runs at software FPS (~20); C19 threshold assumes the designated benchmark machine.

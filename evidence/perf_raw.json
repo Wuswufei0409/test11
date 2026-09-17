@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-09-17T13:25:48.033Z",
+  "url": "http://localhost:5200/?seed=20260917",
+  "seconds": 300,
+  "config": {
+    "ok": true,
+    "renderer": true,
+    "spawned": 30,
+    "seed": 20260917,
+    "viewDistance": 6
+  },
+  "texture_quality": "default",
+  "view_distance_chunks": 6,
+  "chunk_size": 16,
+  "seed": "20260917",
+  "position": [
+    -135.5,
+    62,
+    -163.5
+  ],
+  "operation_route": "static spawn overlook, 30 active mob entities, fixed camera",
+  "sampling_method": "game-loop per-frame dt (window.__DT__, ms), JS heap every 500ms via performance.memory",
+  "result": {
+    "frame_count": 748,
+    "avg_frame_ms": 401.4,
+    "p95_frame_ms": 443.5,
+    "avg_fps": 2.5,
+    "hud_fps": "20 FPS",
+    "mem_samples": 361,
+    "mem_min_mb": 110.63,
+    "mem_max_mb": 110.63,
+    "mem_end_minus_start_mb": 0
+  },
+  "console_errors": [],
+  "page_errors": []
+}

@@ -539,8 +539,10 @@ export function initGame({ seed }) {
   function loop() {
     if (window.__GAME_PAUSED__) return; // freeze for evidence capture
     const now = performance.now();
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const dtRaw = (now - last) / 1000;
+    const dt = Math.min(0.05, dtRaw);
     last = now;
+    if (window.__RECORD_DT__) { (window.__DT__ ||= []).push(dtRaw * 1000); } // C19 perf instrumentation (true interval, off by default)
 
     player.sprinting = keys['ControlLeft'] && !keys['ShiftLeft'] && !player.inFluid();
     // load/stream chunks BEFORE physics so the player never moves into unloaded void
