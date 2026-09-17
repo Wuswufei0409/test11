@@ -357,6 +357,13 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
       const top = topSolid(px, pz);
       if (top < 0 || top - c.elevation > 2) continue; // on ground, not a tree/pillar
       if (!headClear(px, pz, top)) continue;
+      // land-interior: a ~36-block radius must be exposed land so the player is deep in a landmass,
+      // NOT on a thin coastal sliver where water can dominate the view (reviewer C02)
+      let landNear = 0, landFar = 0, landWide = 0;
+      for (const [ox, oz] of [[-6,0],[6,0],[0,-6],[0,6],[-4,-4],[4,4],[-4,4],[4,-4]]) landNear += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
+      for (const [ox, oz] of [[-18,0],[18,0],[0,-18],[0,18],[-12,-12],[12,12],[-12,12],[12,-12]]) landFar += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
+      for (let ox = -32; ox <= 32; ox += 8) for (let oz = -32; oz <= 32; oz += 8) landWide += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
+      if (landNear < 7 || landFar < 6 || landWide < 60) continue; // must be surrounded by land
       const eye = top + 4;
       const s = bestSight(px, pz, eye);
       if (!s || s.drop < 2) continue; // need a visible land drop-ahead (overlook)
