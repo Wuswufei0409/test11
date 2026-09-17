@@ -51,9 +51,10 @@ describe('world generation', () => {
       expect(found.has(b), `missing biome ${b}`).toBe(true);
   });
 
-  it('registry carries a rich set of distinct blocks (>=30) for later modules', () => {
+  it('registry carries a rich set of distinct blocks obtainable in the mine->inventory->place loop (C05 >=30)', () => {
     expect(BLOCKS.length).toBeGreaterThanOrEqual(32);
-    expect(breakableBlockCount()).toBeGreaterThanOrEqual(20);
+    // >=30 distinct blocks enter the pickup/placement loop (excludes air/bedrock/water)
+    expect(breakableBlockCount()).toBeGreaterThanOrEqual(30);
   });
 
   it('chunk data has bedrock at y=0 and valid ids everywhere', () => {

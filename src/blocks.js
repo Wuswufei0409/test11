@@ -38,6 +38,8 @@ const DEFS = [
   { id: 29, name: 'stone_bricks', top: [142,142,142], side: [142,142,142], bot: [142,142,142], hardness: 1.5, solid: true, opaque: true },
   { id: 30, name: 'glass',     top: [200,225,238], side: [200,225,238], bot: [200,225,238], hardness: 0.3, solid: true, opaque: false },
   { id: 31, name: 'granite',   top: [150,114,100], side: [150,114,100], bot: [150,114,100], hardness: 1.5, solid: true, opaque: true },
+  { id: 32, name: 'bricks',    top: [170,105,95], side: [170,105,95], bot: [170,105,95], hardness: 2.0, solid: true, opaque: true },
+  { id: 33, name: 'mossy_cobblestone', top: [104,120,96], side: [104,120,96], bot: [104,120,96], hardness: 2.0, solid: true, opaque: true },
 ];
 
 export const BLOCKS = DEFS.map((d) => ({ ...d }));
@@ -70,7 +72,10 @@ export function isFluid(id) {
   return !!d && !!d.fluid;
 }
 
-/** Distinct breakable block ids that enter the 'mine -> inventory -> place' loop (>=30 by C05). */
+/**
+ * Distinct block ids obtainable in the 'mine -> inventory -> place' loop (C05, >=30).
+ * Includes solid breakable blocks AND instantly-breakable plants; excludes air, bedrock, water.
+ */
 export function breakableBlockCount() {
-  return BLOCKS.filter((b) => b.solid && b.hardness >= 0).length;
+  return BLOCKS.filter((b) => b.id !== 0 && b.name !== 'bedrock' && b.name !== 'water' && (b.solid || b.plant)).length;
 }

@@ -73,7 +73,11 @@ export class Player {
     this.moveAxis(this.pos.z + this.vel.z * dt, 'z');
 
     const wasOnGround = this.onGround;
-    this.onGround = this.collides(this.pos.x, this.pos.y - 0.01, this.pos.z);
+    // robust grounding: check for a solid block supporting the player's feet area (breaks at the
+    // exact cell the feet rest on, not the cell the feet are inside)
+    const supportY = Math.floor(this.pos.y - 0.5001);
+    this.onGround = this.collideAt(this.pos.x, this.pos.y, this.pos.z) ||
+      this.collideRectAtSupport(this.pos.x, this.pos.z, supportY);
     if (this.onGround) { this.vel.y = Math.max(this.vel.y, 0); }
 
     if (this.keys['Space'] && (this.onGround || (this.swimming && this.keys['Space']))) {
@@ -89,22 +93,59 @@ export class Player {
     if (this.pos.y > WORLD_HEIGHT) this.pos.y = WORLD_HEIGHT;
   }
 
+  collideAt(x, y, z) {
+    const r = AABB.w / 2;
+    for (let by = Math.floor(y); by < Math.floor(y + AABB.h); by++)
+      for (let bx = Math.floor(x - r); bx <= Math.floor(x + r); bx++)
+        for (let bz = Math.floor(z - r); bz <= Math.floor(z + r); bz++)
+          if (isSolid(this.world.getBlock(bx, by, bz))) return true;
+    return false;
+  }
+
+  /** True if any solid block occupies the horizontal footprint one cell below the given support cell. */
+  collideRectAtSupport(x, z, supportCellY) {
+    const r = AABB.w / 2;
+    for (let bx = Math.floor(x - r); bx <= Math.floor(x + r); bx++)
+      for (let bz = Math.floor(z - r); bz <= Math.floor(z + r); bz++)
+        if (isSolid(this.world.getBlock(bx, supportCellY, bz))) return true;
+    return false;
+  }
+
+  /** Move along a single axis, with an automatic 1-block step-up when blocked (台阶跨越). */
   moveAxis(target, axis) {
     const prev = this.pos[axis];
+    const horizontal = axis === 'x' || axis === 'z';
+    const stepping = this.onGround && horizontal && !this.sneaking;
+
+    if (horizontal && stepping) {
+      // try the lateral move, then attempt a 1-block step-up if it collides
+      const attempt = { ...this.pos, [axis]: target };
+      if (!this.collideAt(attempt.x, attempt.y, attempt.z)) {
+        this.pos[axis] = target;
+        return;
+      }
+      // blocked: try to step up one full block (and land on it)
+      const lifted = { ...this.pos, y: this.pos.y + 1.0, [axis]: target };
+      if (!this.collideAt(lifted.x, lifted.y, lifted.z) && this.collideAt(lifted.x, lifted.y + 0.5, lifted.z) === false) {
+        // moving onto the step is clear at +1; also ensure the space above the feet is open
+        if (!this.collideAt(lifted.x, lifted.y, lifted.z)) {
+          this.pos.y = lifted.y;
+          this.pos[axis] = target;
+          this.onGround = true;
+        }
+      }
+      return;
+    }
+
+    // clamp lateral axes to prevent leaving the loaded world horizontally (void protection)
+    if (horizontal) {
+      if (this.pos[axis] < -400) this.pos[axis] = -400;
+      if (this.pos[axis] > 400) this.pos[axis] = 400;
+    }
+
     this.pos[axis] = target;
-    const r = AABB.w / 2;
-    const x0 = Math.floor(this.pos.x - r), x1 = Math.floor(this.pos.x + r);
-    const y0 = Math.floor(this.pos.y), y1 = Math.floor(this.pos.y + AABB.h);
-    const z0 = Math.floor(this.pos.z - r), z1 = Math.floor(this.pos.z + r);
-    const solidBlocks = [];
-    for (let by = y0; by <= y1; by++)
-      for (let bx = x0; bx <= x1; bx++)
-        for (let bz = z0; bz <= z1; bz++)
-          if (isSolid(this.world.getBlock(bx, by, bz))) solidBlocks.push([bx, by, bz]);
-    if (solidBlocks.length) {
-      if (axis === 'x') this.pos.x = prev;
-      if (axis === 'y') this.pos.y = prev;
-      if (axis === 'z') this.pos.z = prev;
+    if (this.collideAt(this.pos.x, this.pos.y, this.pos.z)) {
+      this.pos[axis] = prev;
       if (axis === 'y' && target < prev) this.onGround = true;
     }
   }

@@ -8,6 +8,8 @@ import { buildHUD, HUD_CSS } from './hud.js';
 import { buildAtlas, buildSprite } from './textures.js';
 import { blockDef, blockId, isSolid, isFluid, BLOCKS } from './blocks.js';
 import { SEA_LEVEL, columnInfo, findSafeSpawn } from './worldgen.js';
+import { createInventory, addItem, removeItem, countItem, moveStack, splitStack, dropAll, HOTBAR, SLOTS } from './inventory.js';
+import { mineTime as mineTimeFor } from './mining.js';
 
 export function initGame({ seed }) {
   const container = document.getElementById('app');
@@ -32,17 +34,20 @@ export function initGame({ seed }) {
   style.textContent = HUD_CSS;
   document.head.appendChild(style);
 
-  // inventory hotbar with block/colored icons
-  const menuBlocks = BLOCKS.filter((b) => b.solid && b.hardness >= 0).slice(0, 9);
-  const hotbar = menuBlocks.map((b) => ({ item: b.id, count: 64, color: `rgb(${b.side})` }));
+  // inventory: 36 slots (9 hotbar + 27 storage), all empty; block/color matches for display
+  const inventory = createInventory();
+  const blockColor = (id) => { const d = blockDef(id); return d ? `rgb(${d.side})` : 'transparent'; };
+  // seed a few starter blocks into the hotbar so the loop is immediately usable (C05/C06)
+  const starters = BLOCKS.filter((b) => b.solid && b.hardness >= 0).slice(0, 9);
+  starters.forEach((b, i) => { inventory[i] = { id: b.id, count: 5, color: blockColor(b.id) }; });
 
   // menu overlay / pointer lock
   const overlay = document.createElement('div');
   overlay.id = 'menu-overlay';
-  overlay.innerHTML = `<div class="inner"><h1>test11 — Voxel Sandbox (W1 render core)</h1>
+  overlay.innerHTML = `<div class="inner"><h1>test11 — Voxel Sandbox (W2 controls+interaction)</h1>
     <p>Non-official experiment inspired by Minecraft Bedrock 1.4.2 (Update Aquatic phase 1).</p>
-    <p>WASD move · Space jump · Shift sneak/sprint-down · Mouse look</p>
-    <p>Left-click break · Right-click place · 1-9 select hotbar</p>
+    <p>WASD move · Space jump · Shift sneak/sprint-down · Ctrl sprint · Mouse look · swim in water</p>
+    <p>Hold left-click mine (by hardness) · Right-click place · 1-9 hotbar · E inventory</p>
     <p style="color:#ffd24a">Click to start</p></div>`;
   document.body.appendChild(overlay);
   const lockMouse = () => renderer.domElement.requestPointerLock();
@@ -85,7 +90,7 @@ export function initGame({ seed }) {
   }
 
   // hand item mesh
-  const handTex = buildSprite(THREE, hotbar[0].item, seed);
+  const handTex = buildSprite(THREE, inventory[0].id, seed);
   const handMat = new THREE.MeshLambertMaterial({ map: handTex, transparent: true });
   const handGeo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
   const hand = new THREE.Mesh(handGeo, handMat);
@@ -107,6 +112,7 @@ export function initGame({ seed }) {
     if (e.code === 'ShiftLeft') { player.sneaking = true; player.sprinting = false; }
     if (e.code === 'KeyW' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); }
     if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1 && n <= 9) select(n - 1); }
+    if (e.code === 'KeyE') { toggleInventory(); }
   });
   window.addEventListener('keyup', (e) => {
     keys[e.code] = false;
@@ -119,36 +125,140 @@ export function initGame({ seed }) {
       player.pitch = Math.max(-1.55, Math.min(1.55, player.pitch));
     }
   });
+  // ---- drop-item entities (C05) ----
+  const drops = []; // { mesh, itemId, count, pos, vel }
+  const DROP_LIFETIME = 150; // seconds
+  function spawnDrop(itemId, count, x, y, z) {
+    if (!count || count <= 0) return;
+    const size = 0.2;
+    const geo = new THREE.BoxGeometry(size, size, size);
+    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(...blockColor3(itemId)) });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    scene.add(m);
+    drops.push({ mesh: m, itemId, count, pos: { x, y, z }, vel: { x: (Math.random() - 0.5) * 1.5, y: 2, z: (Math.random() - 0.5) * 1.5 }, life: DROP_LIFETIME });
+  }
+  function blockColor3(id) {
+    const d = blockDef(id);
+    if (!d) return [1, 1, 1];
+    const [r, g, b] = d.side;
+    return [r / 255, g / 255, b / 255];
+  }
+  function updateDrops(dt) {
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.life -= dt;
+      if (d.life <= 0) { scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose(); drops.splice(i, 1); continue; }
+      d.vel.y -= 22 * dt;
+      d.pos.x += d.vel.x * dt; d.pos.y += d.vel.y * dt; d.pos.z += d.vel.z * dt;
+      // land on solid ground
+      if (d.vel.y < 0 && world.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y - 0.1), Math.floor(d.pos.z))) {
+        d.vel.y = 0; d.pos.y = Math.floor(d.pos.y) + 0.15;
+        d.vel.x *= 0.8; d.vel.z *= 0.8;
+      }
+      d.mesh.position.set(d.pos.x, d.pos.y, d.pos.z);
+      // pickup when the player walks within reach (C05 掉落拾取)
+      const dx = d.pos.x - player.pos.x, dy = d.pos.y - (player.pos.y + 1.0), dz = d.pos.z - player.pos.z;
+      if (dx * dx + dy * dy + dz * dz < 2.5) {
+        const before = countItem(inventory, d.itemId);
+        const room = inventory.some((s) => (s.id === 0) || (s.id === d.itemId && s.count < 64));
+        if (room) {
+          const addedAny = addItem(inventory, d.itemId, d.count);
+          if (addedAny > 0) {
+            scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose(); drops.splice(i, 1);
+          }
+        }
+      }
+    }
+  }
+
+  // hardness-based mining state
+  let miningBlock = null, miningProgress = 0;
+  const MAX_REACH = 5;
+  const mineTime = mineTimeFor;
+
   document.addEventListener('mousedown', (e) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     const dir = player.forward();
     const eye = { x: player.pos.x, y: player.pos.y + 1.62, z: player.pos.z };
     const hit = raycast(eye, dir);
-    if (e.button === 0 && hit && hit.dist < 5) {
-      const def = blockDef(hit.block.id);
-      if (world.getBlock(hit.block.x, hit.block.y, hit.block.z) !== 0) {
-        const cur = hud.hotbar[selected] || { item: 0 };
-        world.setBlock(hit.block.x, hit.block.y, hit.block.z, 0);
-        // give player the block
-        const given = hotbar.find((s) => s.item === hit.block.id);
-        if (given) given.count = Math.min(given.count + 1, 999);
+    if (e.button === 0) {
+      if (hit && hit.dist <= MAX_REACH) {
+        const id = world.getBlock(hit.block.x, hit.block.y, hit.block.z);
+        if (id !== 0 && blockDef(id).hardness >= 0) {
+          miningBlock = { x: hit.block.x, y: hit.block.y, z: hit.block.z, id };
+          miningProgress = 0;
+        }
       }
     } else if (e.button === 2 && hit && hit.dist < 5) {
-      const st = hotbar[selected];
-      if (st && st.item !== 0 && st.count > 0) {
+      const st = inventory[selected];
+      if (st && st.id !== 0 && st.count > 0) {
         const px = hit.prev.x, py = hit.prev.y, pz = hit.prev.z;
         const target = world.getBlock(px, py, pz);
-        if (target === 0 && !(Math.abs(px - Math.floor(player.pos.x)) === 0 && Math.abs(py - Math.floor(player.pos.y)) === 0 && Math.abs(pz - Math.floor(player.pos.z)) === 0)) {
-          world.setBlock(px, py, pz, st.item);
-          st.count--;
+        const ox = Math.abs(px - Math.floor(player.pos.x)) <= 1 && Math.abs(py - Math.floor(player.pos.y)) <= 2 && Math.abs(pz - Math.floor(player.pos.z)) <= 1;
+        if (target === 0 && !ox) {
+          const placed = world.setBlock(px, py, pz, st.id);
+          if (placed) st.count--;
+          if (st.count <= 0) { st.id = 0; st.count = 0; }
         }
       }
     }
+  });
+  document.addEventListener('mouseup', () => { miningBlock = null; miningProgress = 0; });
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('pointerlockchange', () => {
+    overlay.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'flex';
   });
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('pointerlockchange', () => {
     overlay.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'flex';
   });
+
+  // ---- inventory panel UI (C06: 背包堆叠/拆分/交换) ----
+  const invPanel = hud.invPanel();
+  let invOpen = false;
+  let panelRender = () => {};
+  function renderInventory() {
+    invPanel.innerHTML = '<div class="inv-title">Inventory (E to close, click move · right-click split)</div>';
+    for (let r = 0; r < 4; r++) { // 4 rows x 9 = 36 slots
+      const row = document.createElement('div'); row.className = 'row';
+      for (let c = 0; c < 9; c++) {
+        const i = r * 9 + c;
+        const cell = document.createElement('div');
+        cell.className = 'inv-slot';
+        const st = inventory[i];
+        if (st && st.id !== 0 && st.count > 0) {
+          cell.classList.add('has');
+          cell.innerHTML = `<span class="ic" style="background:${blockColor(st.id)}"></span><span class="ct">${st.count}</span><span class="idx">${i < HOTBAR ? 'H' + (i + 1) : i}</span>`;
+        } else {
+          cell.innerHTML = `<span class="idx">${i < HOTBAR ? 'H' + (i + 1) : i}</span>`;
+        }
+        cell.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          if (ev.button === 2) {
+            // split half into the selected hotbar slot (or first empty)
+            const target = inventory.findIndex((s, k) => s !== st && (s.id === 0));
+            const to = target >= 0 ? target : selected;
+            splitStack(inventory, i, to);
+            renderInventory();
+          } else if (ev.button === 0) {
+            // swap with the selected hotbar slot (拾取/交换)
+            moveStack(inventory, i, selected);
+            renderInventory();
+          }
+        });
+        row.appendChild(cell);
+      }
+      invPanel.appendChild(row);
+    }
+  }
+  panelRender = renderInventory;
+  function toggleInventory() {
+    invOpen = !invOpen;
+    invPanel.style.display = invOpen ? 'block' : 'none';
+    renderInventory();
+    if (invOpen) document.exitPointerLock();
+  }
 
   // per-frame state
   let last = performance.now();
@@ -167,8 +277,38 @@ export function initGame({ seed }) {
     world.rebuildDirty();
     player.update(dt);
 
+    // death drops (C06): dropping inventory as world items, then respawning at spawn
+    if (player.health <= 0) {
+      const dropped = dropAll(inventory);
+      for (const [idv, cnt] of Object.entries(dropped)) spawnDrop(+idv, cnt, player.pos.x, player.pos.y + 1.5, player.pos.z);
+      player.health = 20; player.food = 20;
+      player.pos.x = spawn.x; player.pos.y = spawn.y + 2; player.pos.z = spawn.z;
+      player.vel.x = 0; player.vel.y = 0; player.vel.z = 0;
+      renderInventory();
+    }
+
     camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
+
+    // hardness-based mining tick (hold to break; spawns a drop item that goes to inventory)
+    if (miningBlock) {
+      const cur = world.getBlock(miningBlock.x, miningBlock.y, miningBlock.z);
+      if (cur === 0 || cur !== miningBlock.id) { miningBlock = null; miningProgress = 0; }
+      else {
+        const mt = mineTime(cur);
+        if (mt !== Infinity) {
+          miningProgress += dt;
+          if (miningProgress >= mt) {
+            const bid = cur;
+            const bx = miningBlock.x, by = miningBlock.y, bz = miningBlock.z;
+            world.setBlock(bx, by, bz, 0);
+            spawnDrop(bid, 1, bx + 0.5, by + 0.5, bz + 0.5); // 掉落物生成 (C05)
+            miningBlock = null; miningProgress = 0;
+          }
+        }
+      }
+    }
+    updateDrops(dt);
 
     // block highlight + label
     const dir = player.forward();
@@ -193,9 +333,15 @@ export function initGame({ seed }) {
 
     hud.setCoords(player.pos);
     hud.setStats && hud.setStats(player);
-    hud.setHotbar(hotbar, selected);
+    hud.setHotbar(inventory, selected);
     hud.setHearts(player.health);
     hud.setFood(player.food);
+    // mining progress indicator (crack overlay text)
+    if (miningBlock) {
+      const mt = mineTime(world.getBlock(miningBlock.x, miningBlock.y, miningBlock.z));
+      const frac = mt === Infinity ? 0 : Math.min(1, miningProgress / mt);
+      hud.setMining(frac, miningBlock ? true : false);
+    } else hud.setMining(0, false);
 
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc >= 0.5) { fpsVal = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
@@ -208,5 +354,11 @@ export function initGame({ seed }) {
   window.addEventListener('resize', () => onResize(renderer, camera, container));
   requestAnimationFrame(loop);
 
-  return { world, player, scene, camera, renderer, select, spawn, hotbar, hand, meshGroup };
+  return {
+    world, player, scene, camera, renderer, select, spawn,
+    inventory, hand, meshGroup, drops,
+    setBlock(wx, wy, wz, idv) { return world.setBlock(wx, wy, wz, idv); },
+    getBlock(wx, wy, wz) { return world.getBlock(wx, wy, wz); },
+    toggleInventory, renderInventory,
+  };
 }

@@ -16,6 +16,8 @@ export function buildHUD() {
     <div id="seedbox"></div>
     <div id="block-label"></div>
     <div id="help"></div>
+    <div id="mining-bar"></div>
+    <div id="inventory-panel" style="display:none"></div>
   `;
   document.body.appendChild(root);
 
@@ -45,16 +47,12 @@ export function buildHUD() {
         const icon = s.querySelector('.icon');
         const count = s.querySelector('.count');
         const st = stacks[i];
-        const hotbarEl2 = s;
-        if (st && st.item !== 0) {
-          icon.style.background = st.color;
-          icon.classList.add('has');
-          this.hotbarSel = i;
-        } else {
-          icon.style.background = 'transparent';
-          icon.classList.remove('has');
-        }
-        count.textContent = st && st.item !== 0 ? (st.count > 1 ? st.count : '') : '';
+        const idv = st ? (st.id !== undefined ? st.id : st.item) : 0;
+        const cnt = st ? (st.count || 0) : 0;
+        const has = idv !== 0 && cnt > 0;
+        icon.style.background = has ? (st.color || '#fff') : 'transparent';
+        icon.classList.toggle('has', has);
+        count.textContent = has ? (cnt > 1 ? cnt : '') : '';
         s.classList.toggle('selected', i === sel);
       });
     },
@@ -70,6 +68,16 @@ export function buildHUD() {
     setFps(f) { root.querySelector('#fps').textContent = f + ' FPS'; },
     setSeed(s) { root.querySelector('#seedbox').textContent = 'Seed ' + s; },
     setBlock(label) { root.querySelector('#block-label').textContent = label; },
+    setMining(frac, active) {
+      const bar = root.querySelector('#mining-bar');
+      if (!active) { bar.style.display = 'none'; bar.textContent = ''; return; }
+      bar.style.display = 'block';
+      const pct = Math.round(frac * 100);
+      bar.textContent = 'Mining ' + Math.min(100, pct) + '%';
+      bar.style.width = (28 + frac * 100) + 'px';
+    },
+    // Inventory panel binding (population done by game layer)
+    invPanel() { return root.querySelector('#inventory-panel'); },
   };
 }
 
@@ -98,6 +106,15 @@ export const HUD_CSS = `
 #fps{position:absolute;left:12px;top:8px;font-size:14px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px}
 #seedbox{position:absolute;left:12px;top:36px;font-size:12px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px}
 #block-label{position:absolute;top:40%;left:50%;transform:translateX(-50%);font-size:16px;background:rgba(0,0,0,0.45);padding:2px 10px;border-radius:4px}
+#mining-bar{position:absolute;top:58%;left:50%;transform:translateX(-50%);height:6px;background:#fff;border:1px solid #000;border-radius:3px;display:none}
+#inventory-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(24,26,32,0.96);border:2px solid rgba(255,255,255,0.5);padding:12px;border-radius:6px;z-index:30;pointer-events:auto}
+#inventory-panel .row{display:flex;gap:4px;margin-bottom:4px}
+#inventory-panel .inv-slot{width:44px;height:44px;border:2px solid rgba(255,255,255,0.35);background:rgba(0,0,0,0.28);position:relative}
+#inventory-panel .inv-slot.has{border-color:rgba(255,255,255,0.7)}
+#inventory-panel .inv-slot .ic{position:absolute;inset:4px}
+#inventory-panel .inv-slot .ct{position:absolute;right:3px;bottom:0;font-size:12px;font-weight:bold}
+#inventory-panel .inv-slot .idx{position:absolute;left:2px;top:0;font-size:9px;opacity:0.6}
+#inventory-panel .inv-title{font-size:14px;margin-bottom:6px;color:#ffd24a}
 #help{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);bottom:74px;font-size:12px;background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:4px;display:none}
 #menu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20;display:flex;align-items:center;justify-content:center;color:#fff;font-family:ui-sans-serif,system-ui;text-align:center;cursor:pointer}
 #menu-overlay .inner{background:rgba(30,30,40,0.92);padding:30px 40px;border-radius:8px;border:2px solid rgba(255,255,255,0.3)}
