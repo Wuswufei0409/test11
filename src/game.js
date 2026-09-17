@@ -15,6 +15,13 @@ import { DayNight } from './daynight.js';
 import { MOBS, mobDef, mobAI, hostileAttack, creeperBlast, rollDrops, foodOf } from './mobs.js';
 import { CROPS, growCrop, isMature, harvest, canTill, canPlantOn } from './farming.js';
 import { armorMultiplier, resolveHit, WEAPONS } from './combat.js';
+import { dropsFor as toolDropsFor, mineSeconds as toolMineSeconds, useDurability, canHarvest } from './tools.js';
+import { getRecipe, listRecipes, recipeMeta } from './recipes.js';
+import { craftRecipe as craftOne } from './crafting.js';
+import { Furnace, fuelSeconds, smeltResult } from './furnace.js';
+import { buildCraftingPanel, buildFurnaceUI, buildSaveLoadUI, collectSnapshot, applySnapshot, installPanelsCss } from './w3_panels.js';
+import { loadGame, saveGame, localStorageAdapter } from './save.js';
+import { itemId, itemName } from './items.js';
 
 export function initGame({ seed }) {
   const container = document.getElementById('app');
@@ -169,6 +176,24 @@ export function initGame({ seed }) {
 
   let selected = 0;
   const select = (i) => { selected = ((i % 9) + 9) % 9; hud.selectSlot(selected); };
+
+  // ---- W3: block-tile entities (furnaces), time-of-day, W3 panels ----
+  const tileEntities = new Map(); // "x,y,z" -> { type:'furnace', furnace: Furnace }
+  let timeOfDay = 0;
+  let furnaceUIEl = null;
+  let craftPanel = null;
+  installPanelsCss();
+  const saveTokens = {
+    key: 'mcsave',
+    get: (k) => localStorageAdapter.get(k),
+    set: (k, v) => localStorageAdapter.set(k, v),
+  };
+  // Tool-aware helper for the currently selected hand item.
+  const selectedTool = () => {
+    const st = inventory[selected];
+    if (st && st.id !== 0) return st;
+    return null;
+  };
 
   // raycast-voxel (DDA)
   function raycast(origin, dir, maxDist = 6) {
@@ -435,7 +460,12 @@ export function initGame({ seed }) {
           const ox = Math.abs(px - Math.floor(player.pos.x)) <= 1 && Math.abs(py - Math.floor(player.pos.y)) <= 2 && Math.abs(pz - Math.floor(player.pos.z)) <= 1;
           if (targetId === 0 && !ox) {
             const placed = world.setBlock(px, py, pz, st.id);
-            if (placed) st.count--;
+            if (placed) {
+              st.count--;
+              if (st.id === blockId('furnace')) {
+                tileEntities.set(`${px},${py},${pz}`, { type: 'furnace', furnace: new Furnace() });
+              }
+            }
             if (st.count <= 0) { st.id = 0; st.count = 0; }
           }
         }
@@ -563,24 +593,40 @@ export function initGame({ seed }) {
     camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
 
-    // hardness-based mining tick (hold to break; spawns a drop item that goes to inventory)
+    // tool-aware mining tick (hold to break; uses tool speed/durability and ore drops - C08)
     if (miningBlock) {
       const cur = world.getBlock(miningBlock.x, miningBlock.y, miningBlock.z);
       if (cur === 0 || cur !== miningBlock.id) { miningBlock = null; miningProgress = 0; }
       else {
-        const mt = mineTime(cur);
+        const toolStack = selectedTool();
+        const toolName = toolStack ? itemName(toolStack.id) : null;
+        const mt = toolMineSeconds(cur, toolName);
         if (mt !== Infinity) {
           miningProgress += dt;
           if (miningProgress >= mt) {
-            const bid = cur;
             const bx = miningBlock.x, by = miningBlock.y, bz = miningBlock.z;
             world.setBlock(bx, by, bz, 0);
-            spawnDrop(bid, 1, bx + 0.5, by + 0.5, bz + 0.5); // 掉落物生成 (C05)
+            tileEntities.delete(`${bx},${by},${bz}`); // furnace/chest tile removed with block
+            // drops honour the tool: raw ores only with the correct tool+tier (C08)
+            const toolId = toolStack ? toolStack.id : null;
+            const dropList = toolDropsFor(cur, toolId ? itemName(toolId) : null);
+            if (dropList.length === 0) {
+              // wrong tool / wrong tier — no drop (C08 error-tool restriction)
+            }
+            for (const dl of dropList) {
+              spawnDrop(dl.id, dl.count, bx + 0.5, by + 0.5, bz + 0.5);
+            }
+            if (toolStack) useDurability(toolStack); // tool durability (C08)
             miningBlock = null; miningProgress = 0;
           }
         }
       }
     }
+    // tick furnace tiles (smelting progresses over time - C08)
+    for (const tile of tileEntities.values()) {
+      if (tile.type === 'furnace') tile.furnace.tick(dt);
+    }
+    furnaceUIEl && furnaceUIEl.refresh();
     updateDrops(dt);
 
     // block highlight + label
@@ -627,12 +673,13 @@ export function initGame({ seed }) {
   }
 
   window.addEventListener('resize', () => onResize(renderer, camera, container));
-  requestAnimationFrame(loop);
 
-  return {
+  // ---- W3: define the game handle, then build panels against it ----
+  const gameHandle = {
     world, player, scene, camera, renderer, select, spawn,
     inventory, hand, meshGroup, drops,
     stats, daynight, mobs, crops, difficulty,
+    seed, tileEntities, timeOfDay,
     setBlock(wx, wy, wz, idv) { return world.setBlock(wx, wy, wz, idv); },
     getBlock(wx, wy, wz) { return world.getBlock(wx, wy, wz); },
     toggleInventory, renderInventory,
@@ -646,5 +693,73 @@ export function initGame({ seed }) {
       cropAt(x, y, z, cropId, growth) { const cb = { wheat: 35, carrot: 36, potato: 37 }[cropId] || 35; world.setBlock(x, y, z, cb); crops.set(`${x},${y},${z}`, { cropId, growth }); },
       setSelected(i) { select(i); },
     },
+    // W3 panels/API surface
+    openCraft: null, craftPanel: null, furnaceUI: null, saveLoadUI: null,
+    craft(recipeId) { return craftOne(this.inventory, getRecipe(recipeId)); },
+    give(name, count) { return addItem(this.inventory, itemId(name), count); },
+    placeFurnace(x, y, z) {
+      this.setBlock(x, y, z, blockId('furnace'));
+      const f = new Furnace();
+      this.tileEntities.set(`${x},${y},${z}`, { type: 'furnace', furnace: f });
+      return f;
+    },
+    openFurnaceTile(key) {
+      const tile = this.tileEntities.get(key);
+      if (tile && this.furnaceUI) this.furnaceUI.open(key, tile);
+      return !!tile;
+    },
+    demoSmelt() {
+      const f = new Furnace();
+      f.input = { id: itemId('iron_ore_raw'), count: 1 };
+      f.fuel = { id: itemId('coal'), count: 1 };
+      for (let t = 0; t < 120; t += 0.1) f.tick(0.1);
+      return { input: f.input, output: f.output, lit: f.isLit };
+    },
+    itemId: (n) => itemId(n),
+    getSnapshot() { return collectSnapshot(this); },
+    applySnapshot(s) { return applySnapshot(this, s); },
+    save() { return saveGame(saveTokens.set, saveTokens.get, saveTokens.key, collectSnapshot(this)); },
+    load() { const r = loadGame(saveTokens.get, saveTokens.key); if (r.ok && !r.fresh) { applySnapshot(this, r.state); } return r; },
+    doesSaveExist() { const raw = saveTokens.get(saveTokens.key); return !!raw; },
+    rawSave() { return saveTokens.get(saveTokens.key); },
+    autoSave: () => autoSave(),
   };
+  const openCraft = () => {
+    if (!gameHandle.craftPanel) return;
+    const el = gameHandle.craftPanel.el;
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+    gameHandle.craftPanel.render();
+  };
+  gameHandle.craftPanel = buildCraftingPanel(gameHandle, {
+    onCraft: (recipeId) => {
+      const r = craftOne(gameHandle.inventory, getRecipe(recipeId));
+      hud.setHotbar(gameHandle.inventory, selected);
+      if (gameHandle.renderInventory) gameHandle.renderInventory();
+      gameHandle.craftPanel.render();
+      return r;
+    },
+  });
+  gameHandle.furnaceUI = buildFurnaceUI(gameHandle);
+  furnaceUIEl = gameHandle.furnaceUI;
+  gameHandle.saveLoadUI = buildSaveLoadUI(gameHandle, saveTokens, { craftPanelEl: gameHandle.craftPanel.el, openCraft });
+  gameHandle.openCraft = openCraft;
+
+  // boot-time load: continue a previously saved world (C18 关页重开可继续)
+  const boot = loadGame(saveTokens.get, saveTokens.key);
+  if (boot.ok && !boot.fresh) {
+    applySnapshot(gameHandle, boot.state);
+  }
+  // auto-save every 10s and on page close (never silent: back-ups a differing valid save)
+  let lastAuto = (Date.now() / 1000) | 0;
+  const autoSave = () => {
+    const now = (Date.now() / 1000) | 0;
+    if (now - lastAuto >= 10) { lastAuto = now; saveGame(saveTokens.set, saveTokens.get, saveTokens.key, collectSnapshot(gameHandle)); }
+  };
+  window.addEventListener('beforeunload', () => {
+    try { saveGame(saveTokens.set, saveTokens.get, saveTokens.key, collectSnapshot(gameHandle)); } catch {}
+  });
+
+  requestAnimationFrame(() => { autoSave(); });
+  requestAnimationFrame(loop);
+  return gameHandle;
 }

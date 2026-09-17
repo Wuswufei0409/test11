@@ -46,6 +46,12 @@ const DEFS = [
   { id: 36, name: 'carrot_crop',top: [230,150,70], side: [230,150,70], bot: [230,150,70], hardness: 0, solid: false, opaque: false, plant: true },
   { id: 37, name: 'potato_crop',top: [200,170,80], side: [200,170,80], bot: [200,170,80], hardness: 0, solid: false, opaque: false, plant: true },
   { id: 38, name: 'bed',       top: [220,70,90], side: [180,60,80], bot: [120,50,60], hardness: 0.4, solid: true, opaque: true },
+  // ---- W3 craftable blocks (renumbered 39-43 to avoid collision with farming 34-38) ----
+  { id: 39, name: 'sponge',      top: [214,196,92], side: [214,196,92], bot: [214,196,92], hardness: 0.6, solid: true, opaque: true },
+  { id: 40, name: 'chest',       top: [150,112,64], side: [133,97,53], bot: [150,112,64], hardness: 2.5, solid: true, opaque: true },
+  { id: 41, name: 'furnace',     top: [116,116,116], side: [126,118,108], bot: [116,116,116], hardness: 3.5, solid: true, opaque: true },
+  { id: 42, name: 'torch',       top: [255,214,110], side: [150,118,64], bot: [150,118,64], hardness: 0, solid: false, opaque: false, plant: true },
+  { id: 43, name: 'crafting_table', top: [168,132,74], side: [136,104,60], bot: [150,112,64], hardness: 2.5, solid: true, opaque: true },
   // ---- C11/C12 drops, food, seeds, weapons, armor (item defs; not world blocks) ----
   { id: 100, name: 'raw_pork',   color: [240,150,160], hardness: 0, solid: false, opaque: false, item: true },
   { id: 101, name: 'raw_beef',   color: [200,90,90], hardness: 0, solid: false, opaque: false, item: true },

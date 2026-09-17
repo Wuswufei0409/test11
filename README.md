@@ -6,9 +6,10 @@ implemented in pure Web technology, inspired by *Minecraft Bedrock Edition 1.4.2
 engine, no copied textures/models/audio/trademarks. All assets are generated at runtime
 as original pixel art. Not affiliated with or endorsed by Mojang/Microsoft.
 
-> **Module scope (W1):** World generation + first-person 3D voxel rendering & HUD core
-> (completion criteria **02** and **03**). Subsequent modules (interaction, survival,
-> mobs, oceans, saving, performance, integration) build on this base.
+> **Module scope:** W1 — world generation + first-person 3D voxel rendering & HUD core
+> (completion criteria **02/03**); W2 — player controls + mine/place + inventory (**04/05/06**);
+> **W3 — crafting, tool tiers, furnace smelting and local save/load (07/08/18)**; later
+> modules (survival, mobs, oceans, performance, integration) build on this base.
 
 ## Try it
 
@@ -24,11 +25,44 @@ Click the canvas to lock the mouse, then:
 
 Seed is `20260917` by default; override with `?seed=NNN`.
 
+## W3 — Crafting, tools, furnace & local save (C07/C08/C18)
+
+### Supported recipes (C07)
+Config-driven 2x2/3x3 crafting (`src/recipes.js`). 2×2 (in the player grid, no workbench):
+**oak_planks** (log→4), **stick** (2 planks→4), **crafting_table**, **torch** (coal+stick→4),
+**sponge** (underwater representative, 2×2 sand). 3×3 (need the **crafting_table** workbench):
+**chest**, **furnace**, **boat**, **bucket** (3 iron_ingot V), **bread** (3 wheat), and the full
+**wood → stone → iron** tool set — **pickaxe**, **axe**, **shovel**, **sword** (12 tools).
+A **Recipe Book** panel (inventory `E` → right-top **Craft** button) lists every recipe with
+its grid size, ingredients and a one-click Craft.
+
+### Tool tiers & mining (C08)
+`src/items.js` + `src/tools.js`. Tools have **tier** (wood/stone/iron), **kind**, **speed**
+multiplier, **durability** and a **harvest** level. Iron > stone > wood in speed and harvest.
+**Wrong-tool restriction:** soft blocks (dirt/sand/logs/planks) drop by hand, but stone and
+ores require the matching tool tiers — coal needs a wood+ pickaxe, iron/gold a stone+
+pickaxe, diamond an iron pickaxe — otherwise the block breaks with **no drop**.
+**Ore drops:** coal → coal, iron → raw iron, gold → raw gold, diamond → diamond.
+
+### Furnace smelting (C08)
+`src/furnace.js`. `iron_ore_raw → iron_ingot`, `gold_ore_raw → gold_ingot`, `cobblestone → stone`,
+`sand → glass`, `coal_ore → coal`. Fuel: coal (80 s) > planks/logs (15 s) > stick (5 s).
+Place a **furnace**, right-click it to open the smelting panel; items smelt over time.
+
+### Local save/load (C18)
+`src/save.js`. Saves **seed / position / health+food / inventory / time-of-day / modified
+blocks / chest+furnace tile state / entity key state** to `localStorage`, auto-saves every
+10 s and on page close, and **continues on reopen**. Corrupt saves are detected by a
+checksum and produce a **clear error + safe fallback** (a fresh world) — the loader never
+writes over a broken/valid save, and saving a changed world **backups the previous valid
+save to `mcsave.bak`** instead of silently clobbering it. UI: top-right **Save / Load / New**.
+
 ## Build & test
 
 ```bash
-npm run build      # vite production build -> dist/
-npm test           # vitest: deterministic worldgen + reproducibility + biome coverage
+npm run build            # vite production build -> dist/
+npm test                 # vitest: worldgen + inventory + mining + crafting + tools + furnace + save
+node scripts/w3_evidence.cjs   # headless-browser evidence (needs a dev server on :5201) -> evidence/*.png
 ```
 
 ## Architecture
@@ -44,6 +78,13 @@ npm test           # vitest: deterministic worldgen + reproducibility + biome co
 | `src/player.js` | Pointer-lock FPS controller, physics & AABB collision |
 | `src/game.js` | Main loop, voxel raycast, block edit, hand item, HUD wiring |
 | `src/hud.js` | Bedrock-inspired HUD (crosshair, hotbar, hearts/food/armor, coords, FPS) |
+| `src/items.js` | Item + tool registry (block items, raw mats, 12 tools) |
+| `src/recipes.js` | Config-driven 2×2/3×3 recipe table + recipe book (C07) |
+| `src/crafting.js` | Crafting execution (grid match, one-click craft) |
+| `src/tools.js` | Tool tiers, mining speed, durability, ore drops (C08) |
+| `src/furnace.js` | Furnace smelting + fuel model |
+| `src/save.js` | Local save/load with checksum, corrupt fallback, no-silent-overwrite (C18) |
+| `src/w3_panels.js` | Crafting/furnace/save-load UI wiring |
 
 ## World generation (C03)
 
