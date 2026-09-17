@@ -22,6 +22,10 @@ import { Furnace, fuelSeconds, smeltResult } from './furnace.js';
 import { buildCraftingPanel, buildFurnaceUI, buildSaveLoadUI, collectSnapshot, applySnapshot, installPanelsCss } from './w3_panels.js';
 import { loadGame, saveGame, localStorageAdapter } from './save.js';
 import { itemId, itemName, itemDef } from './items.js';
+import { OxygenTank, headSubmerged, swimSpeed, swimVelocity, floatBuoyancy, underwaterVisibility, underwaterPlacementValid, waterTopBelow } from './water.js';
+import { treasureClue, treasureLoot } from './ocean.js';
+import { AQUATIC, aquaticDef, fishBucketItem, catchWithBucket, releaseFromBucket, aquaticAI as aquaticMobAI } from './aquatic.js';
+import { TRIDENT, applyEnchant, tridentDamage, shouldReturn, riptideLaunch, channelingStrike, advanceThrow, tridentPickupReachable, useTridentDurability } from './trident.js';
 
 export function initGame({ seed }) {
   const container = document.getElementById('app');
@@ -50,6 +54,13 @@ export function initGame({ seed }) {
   const crops = new Map(); // "x,y,z" -> { cropId, growth }
   const bedRespawn = { has: false, x: 0, y: 0, z: 0 };
   let drownTimer = 0, fallStartY = player.pos.y, wasAirborne = false;
+  // ---- W5 systems (C14 water, C15 ocean content, C16 aquatic mobs, C17 trident) ----
+  const oxygen = new OxygenTank();
+  const aquatics = []; // fish/dolphin/pufferfish elements
+  let tridents = [];   // thrown trident projectiles { mesh, pos, vel, tick, ench, aquatic }
+  let weatherThunder = false; // channeling requires thunder
+  let treasureDig = null;     // { x,y,z } currently dug treasure (loot granted) 
+  const daynight2 = null;
 
   const color3 = (c) => { const [r, g, b] = c; return [r / 255, g / 255, b / 255]; };
 
@@ -148,6 +159,58 @@ export function initGame({ seed }) {
   function findGroundY(x, z) {
     for (let y = 70; y >= 0; y--) if (world.getBlock(x, y, z)) return y + 1;
     return 40;
+  }
+
+  // ---- W5: aquatic mob spawn / update (C16) ----
+  function spawnAquatic(id, x, y, z, rng = Math.random) {
+    const def = aquaticDef(id);
+    if (!def) return null;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.8),
+      new THREE.MeshLambertMaterial({ color: new THREE.Color(...color3(def.color)) }));
+    mesh.position.set(x, y, z);
+    scene.add(mesh);
+    const a = { id, def, rng, pos: { x, y, z }, vel: { x: 0, y: 0, z: 0 }, phase: rng() * 10, mesh, state: 'normal', breachTimer: 0 };
+    aquatics.push(a);
+    return a;
+  }
+  function removeAquatic(i) {
+    const a = aquatics[i];
+    scene.remove(a.mesh); a.mesh.geometry.dispose(); a.mesh.material.dispose();
+    aquatics.splice(i, 1);
+  }
+  function spawnAquaticsNear(dt) {
+    if (aquatics.length >= 8) return;
+    // only spawn in/around water near the player
+    const ang = Math.random() * Math.PI * 2, r = 8 + Math.random() * 10;
+    const wx = player.pos.x + Math.cos(ang) * r;
+    const wz = player.pos.z + Math.sin(ang) * r;
+    // find a water column
+    let wy = -1;
+    for (let y = 40; y >= 20; y--) if (world.getBlock(Math.floor(wx), y, Math.floor(wz)) === blockId('water')) { wy = y; break; }
+    if (wy < 0) return;
+    if (Math.random() < 0.3) spawnAquatic('dolphin', wx, wy - 1, wz);
+    else spawnAquatic(['cod','salmon','tropical_fish','pufferfish'][Math.floor(Math.random() * 4)], wx, wy - 1, wz);
+  }
+  function updateAquatics(dt) {
+    for (let i = aquatics.length - 1; i >= 0; i--) {
+      const a = aquatics[i];
+      const m = aquaticMobAI(a, { playerPos: player.pos, mobPos: a.pos, rng: a.rng, dt });
+      a.pos.x += m.move.dx * dt;
+      a.pos.y += (m.move.dy ?? 0) * dt;
+      a.pos.z += m.move.dz * dt;
+      // stay in fluid: keep within a water column
+      const gy = Math.floor(a.pos.y);
+      if (world.getBlock(Math.floor(a.pos.x), gy, Math.floor(a.pos.z)) !== blockId('water')) {
+        // drift back down toward water
+        a.pos.y -= 1.2 * dt;
+      }
+      a.mesh.position.set(a.pos.x + 0.5, a.pos.y, a.pos.z + 0.5);
+      // pufferfish contact damage when inflated+touching (C16)
+      if (a.id === 'pufferfish' && a.state === 'inflated' && stats.alive) {
+        const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z);
+        if (d < 1.6) { stats.damage(a.def.contactDamage, 'hostile'); hud.message('Pufferfish stings! -' + a.def.contactDamage); }
+      }
+    }
   }
 
   const style = document.createElement('style');
@@ -429,6 +492,132 @@ export function initGame({ seed }) {
     return true;
   }
 
+  // ---- W5: fishing / aquatic catch-release (C16) ----
+  function tryCatchFish(bx, by, bz) {
+    // clicking a water block with an empty bucket catches a fish swimming nearby (C16)
+    const st = inventory[selected];
+    const selId = st ? st.id : 0;
+    if (selId !== 210) return false; // empty bucket
+    // find a fish within reach of the clicked water
+    const fishIdx = aquatics.findIndex((a) => a.def.fish && Math.hypot(a.pos.x - bx, a.pos.z - bz) < 2.5);
+    if (fishIdx < 0) { hud.message('No fish here to catch'); return true; }
+    const res = catchWithBucket(aquatics[fishIdx].id, true);
+    if (res.caught) {
+      removeAquatic(fishIdx);
+      removeItem(inventory, 210, 1); // consume bucket
+      addItem(inventory, itemId(res.bucketItem), 1);
+      hud.message('Caught a ' + aquatics[fishIdx].id + ' into a bucket');
+      renderInventory();
+      return true;
+    }
+    return false;
+  }
+  function tryReleaseFish(px, py, pz) {
+    const st = inventory[selected];
+    const selId = st ? st.id : 0;
+    const rel = releaseFromBucket(itemName(selId));
+    if (!rel.released) return false;
+    // release into the clicked water
+    if (world.getBlock(px, py, pz) !== blockId('water')) { hud.message('Release fish into water'); return true; }
+    removeItem(inventory, selId, 1);
+    addItem(inventory, 210, 1); // empty bucket back
+    spawnAquatic(rel.mobId, px, py + 1, pz);
+    hud.message('Released ' + rel.mobId + ' swimming');
+    renderInventory();
+    return true;
+  }
+
+  // ---- W5: buried treasure dig (C15) ----
+  function tryDigTreasure(bx, by, bz, tid) {
+    if (tid !== blockId('treasure') && tid !== blockId('hidden_treasure')) return false;
+    if (!treasureDig) {
+      // first hit: reveal + grant the treasure-map clue + loot (C15 藏宝图/可挖掘奖励)
+      treasureDig = { x: bx, y: by, z: bz };
+      const loot = treasureLoot(Math.random);
+      addItem(inventory, itemId('gold_ingot'), loot.gold_ingot);
+      if (loot.diamond) addItem(inventory, itemId('diamond'), loot.diamond);
+      const clue = treasureClue(bx, bz, player.pos.x, player.pos.z);
+      hud.message('Buried treasure! ' + clue);
+      world.setBlock(bx, by, bz, 0);
+      renderInventory();
+    }
+    return true;
+  }
+
+  // ---- W5: trident throw (C17) ----
+  function tryThrowTrident() {
+    const st = inventory[selected];
+    if (!st || st.id !== itemId('trident')) return false;
+    if (attackCooldown > 0) return false;
+    const dir = player.forward();
+    const eye = { x: player.pos.x, y: player.pos.y + 1.62, z: player.pos.z };
+    // build a projectile mesh
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1),
+      new THREE.MeshLambertMaterial({ color: 0x6eb4be }));
+    mesh.position.set(eye.x, eye.y, eye.z);
+    scene.add(mesh);
+    // enchantments: default a set so testing can grant them
+    const ench = { loyalty: 0, riptide: 0, channeling: 0, impaling: 0 };
+    if (st.ench) Object.assign(ench, st.ench);
+    const t = {
+      mesh, pos: { x: eye.x, y: eye.y, z: eye.z },
+      vel: { x: dir.x * TRIDENT.throwSpeed, y: dir.y * TRIDENT.throwSpeed, z: dir.z * TRIDENT.throwSpeed },
+      tick: 0, ench, durability: st.durability !== undefined ? st.durability : TRIDENT.durability,
+    };
+    tridents.push(t);
+    attackCooldown = TRIDENT.cooldown;
+    // consume one durability per throw
+    if (st.durability === undefined) st.durability = TRIDENT.durability;
+    st.durability -= 1;
+    if (st.durability <= 0) { hud.message('Trident broke'); st.id = 0; st.count = 0; }
+    hud.message('Threw trident');
+    return true;
+  }
+  function updateTridents(dt) {
+    for (let i = tridents.length - 1; i >= 0; i--) {
+      const t = tridents[i];
+      t.vel.y -= 14 * dt; // gravity
+      const np = advanceThrow(t.pos.x, t.pos.y, t.pos.z, t.vel.x, t.vel.y, t.vel.z, dt);
+      t.pos.x = np.x; t.pos.y = np.y; t.pos.z = np.z;
+      t.tick += dt;
+      // hit a mob?
+      let hitMobIdx = -1;
+      const mobPos = [...mobs];
+      for (let k = 0; k < mobPos.length; k++) {
+        const mm = mobPos[k];
+        if (Math.hypot(mm.pos.x - t.pos.x, mm.pos.z - t.pos.z) < 1.2 && Math.abs(mm.pos.y - t.pos.y) < 2) { hitMobIdx = k; break; }
+      }
+      if (hitMobIdx >= 0) {
+        const mm = mobs[hitMobIdx];
+        const aquaticTarget = !!aquaticDef(mm.id);
+        const dmg = tridentDamage(t.ench, aquaticTarget);
+        // channeling bonus (needs thunder weather)
+        const lightning = channelingStrike(t.ench, weatherThunder);
+        mm.health -= dmg + lightning;
+        hud.message('Trident hit ' + mm.id + ' -' + (dmg + lightning) + (lightning ? ' ⚡' : '') + (aquaticTarget && t.ench.impaling ? ' (+impaling)' : ''));
+        if (mm.health <= 0) removeMob(hitMobIdx);
+      }
+      // return to owner (Loyalty) when it should return
+      if (shouldReturn(t.ench, t.tick, hitMobIdx >= 0)) {
+        if (countItem(inventory, itemId('trident')) < 64) { addItem(inventory, itemId('trident'), 1); hud.message('Trident returned (Loyalty)'); }
+        scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose();
+        tridents.splice(i, 1);
+        continue;
+      }
+      // land on ground -> pause & retrievable
+      if (world.getBlock(Math.floor(t.pos.x), Math.floor(t.pos.y - 0.1), Math.floor(t.pos.z)) && t.vel.y < 0) {
+        t.vel.x = 0; t.vel.z = 0; t.vel.y = 0;
+      }
+      if (tridentPickupReachable(t.pos, player.pos)) {
+        addItem(inventory, itemId('trident'), 1); hud.message('Picked up trident');
+        scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose();
+        tridents.splice(i, 1);
+        continue;
+      }
+      t.mesh.position.set(t.pos.x + 0.5, t.pos.y, t.pos.z + 0.5);
+    }
+  }
+
   document.addEventListener('mousedown', (e) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     const dir = player.forward();
@@ -447,6 +636,7 @@ export function initGame({ seed }) {
     } else if (e.button === 2) {
       const st = inventory[selected];
       if (st && st.id === 123 && attackCooldown <= 0) { if (tryBowMob()) return; } // bow (C12)
+      if (st && st.id === itemId('trident') && attackCooldown <= 0) { if (tryThrowTrident()) return; } // trident (C17)
       if (hit && hit.dist < 5) {
         const px = hit.prev.x, py = hit.prev.y, pz = hit.prev.z;
         const targetId = world.getBlock(px, py, pz);
@@ -454,12 +644,16 @@ export function initGame({ seed }) {
         const hitId = world.getBlock(hit.block.x, hit.block.y, hit.block.z);
         if (trySleepBed(hit.block.x, hit.block.y, hit.block.z, hitId)) return;
         if (tryHarvestCrop(hit.block.x, hit.block.y, hit.block.z, hitId)) return;
+        if (tryCatchFish(hit.block.x, hit.block.y, hit.block.z)) return;
+        if (tryReleaseFish(hit.block.x, hit.block.y, hit.block.z)) return;
+        if (tryDigTreasure(hit.block.x, hit.block.y, hit.block.z, hitId)) return;
         if (tryEatSelected()) return;
         if (tryFarmClick(px, py, pz, targetId, targetName)) return;
-        // place block from selected hotbar slot
+        // place block from selected hotbar slot (respect underwater air-hole rule, C14)
         if (st && st.id !== 0 && st.count > 0) {
           const ox = Math.abs(px - Math.floor(player.pos.x)) <= 1 && Math.abs(py - Math.floor(player.pos.y)) <= 2 && Math.abs(pz - Math.floor(player.pos.z)) <= 1;
-          if (targetId === 0 && !ox) {
+          const accepted = underwaterPlacementValid((x2,y2,z2) => world.getBlock(x2,y2,z2), px, py, pz, isFluid);
+          if (targetId === 0 && !ox && accepted) {
             const placed = world.setBlock(px, py, pz, st.id);
             if (placed) {
               st.count--;
@@ -559,7 +753,7 @@ export function initGame({ seed }) {
     scene.background.copy(skyCol); scene.fog.color.copy(skyCol);
     if (daynightBar) { daynightDot.style.left = ((daynight.time % 1) * 100) + '%'; daynightPhase.textContent = daynight.isNight() ? 'Night' : 'Day'; }
 
-    // ---- C09 survival: fall damage, drowning, starvation, regen ----
+    // ---- C09/C14 survival: fall damage, drowning/oxygen, starvation, regen ----
     const wasGround = player.onGround;
     if (wasGround) fallStartY = player.pos.y; else fallStartY = Math.max(fallStartY, player.pos.y);
     player.update(dt);
@@ -569,8 +763,26 @@ export function initGame({ seed }) {
       if (fd > 0) { stats.damage(fd, 'fall'); hud.message(`Ouch! fell ${Math.round(fell)}m -${fd}`); }
       fallStartY = player.pos.y;
     }
-    if (player.inFluid()) { drownTimer += dt; if (drownTimer >= 2) { drownTimer = 0; stats.damage(1, 'drown'); } }
-    else drownTimer = 0;
+    // C14 oxygen + drowning driven by head submersion
+    const submerged = headSubmerged((x2,y2,z2) => world.getBlock(x2,y2,z2), player.pos.x, player.pos.y, player.pos.z, isFluid);
+    hud.oxygenVisible(submerged);
+    const oEvents = oxygen.tick(dt, submerged);
+    if (oEvents.includes('drown')) { stats.damage(1, 'drown'); hud.message('Drowning! -1'); }
+    // underwater visibility (C14)
+    if (submerged) {
+      const depth = Math.max(0, SEA_LEVEL - player.pos.y);
+      const vis = underwaterVisibility(depth);
+      scene.fog.near = 4;
+      scene.fog.far = 10 + vis * 46;
+      const uw = new THREE.Color(0x2a5aa0);
+      scene.fog.color.lerp(uw, 0.6);
+      scene.background.copy(uw.clone().lerp(new THREE.Color().setHSL(0.58, 0.5, 0.4), 0.4));
+      amb.intensity = 0.5; hemi.intensity = 0.4; sun.intensity = 0.6;
+    } else {
+      scene.fog.near = 60; scene.fog.far = 460;
+    }
+    // (legacy body-in-fluid drowning replaced by C14 oxygen tank above)
+    if (!submerged) drownTimer = 0;
     stats.tick(dt);
     player.health = stats.health; player.food = stats.food;
 
@@ -591,6 +803,11 @@ export function initGame({ seed }) {
     updateCrops(dt);
     spawnHostilesIfNight(dt);
     updateMobs(dt);
+    // ---- W5 aquatic mobs (C16) & tridents (C17) & treasure ----
+    spawnAquaticsNear(dt);
+    updateAquatics(dt);
+    updateTridents(dt);
+    if (Math.random() < 0.0005) weatherThunder = !weatherThunder; // occasional thunder for Channeling
     if (attackCooldown > 0) attackCooldown -= dt;
 
     camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
@@ -659,6 +876,7 @@ export function initGame({ seed }) {
     hud.setHearts(player.health);
     hud.setFood(player.food);
     hud.setArmorBar(armorPtsFromInv() * 3.33);
+    hud.setOxygen(oxygen.air * 2);
     hud.setInfo(`Seed ${seed} · ${difficulty}`);
     // mining progress indicator (crack overlay text)
     if (miningBlock) {
@@ -695,6 +913,26 @@ export function initGame({ seed }) {
       damage(amt) { stats.damage(amt, 'hostile'); },
       cropAt(x, y, z, cropId, growth) { const cb = { wheat: 35, carrot: 36, potato: 37 }[cropId] || 35; world.setBlock(x, y, z, cb); crops.set(`${x},${y},${z}`, { cropId, growth }); },
       setSelected(i) { select(i); },
+      // W5 evidence/demo helpers
+      // W5 evidence/demo helpers
+      putWaterColumn(x, z, topY) { let placed = 0; for (let y = 46; y <= (topY || 50); y++) if (world.setBlock(x, y, z, blockId('water'))) placed++; return placed; },
+      spawnAquatic(id, x, z) {
+        // ensure a water column exists at the requested spot, then spawn inside it
+        this.putWaterColumn(x, z, 50);
+        let wy = -1;
+        for (let y = 50; y >= 20; y--) if (world.getBlock(x, y, z) === blockId('water')) { wy = y - 1; break; }
+        if (wy < 1) return false;
+        spawnAquatic(id, x, wy, z);
+        return true;
+      },
+      selectTrident() { const i = inventory.findIndex((s) => s && s.id === itemId('trident') && s.count > 0); if (i < 0) return false; if (i > 8) { moveStack(inventory, i, 0); select(0); } else { select(i); } return inventory[selected] && inventory[selected].id === itemId('trident'); },
+      throwTrident() { return tryThrowTrident(); },
+      aquariumCount() { return aquatics.length; },
+      oxygenLeft() { return oxygen.air; },
+      forceThunder(flag) { weatherThunder = flag !== false; return weatherThunder; },
+      enchantTrident(enchName) { const st = inventory.find((s) => s && s.id === itemId('trident')); if (!st) return 'no_trident'; st.ench = st.ench || {}; applyEnchant(enchName, st.ench); return st.ench; },
+      digTreasure(x, y, z) { if (world.getBlock(x, y, z) === blockId('treasure')) return tryDigTreasure(x, y, z, blockId('treasure')); return false; },
+      placeTreasure(x, y, z) { return world.setBlock(x, y, z, blockId('treasure')); },
     },
     // W3 panels/API surface
     openCraft: null, craftPanel: null, furnaceUI: null, saveLoadUI: null,

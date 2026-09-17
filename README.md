@@ -85,6 +85,10 @@ node scripts/w3_evidence.cjs   # headless-browser evidence (needs a dev server o
 | `src/furnace.js` | Furnace smelting + fuel model |
 | `src/save.js` | Local save/load with checksum, corrupt fallback, no-silent-overwrite (C18) |
 | `src/w3_panels.js` | Crafting/furnace/save-load UI wiring |
+| `src/water.js` | C14 water core: oxygen/drowning, buoyancy, swim speed, underwater visibility, placement rules |
+| `src/ocean.js` | C15 ocean content: coral, kelp, seagrass, icebergs, shipwrecks, ruins, buried treasure + clues |
+| `src/aquatic.js` | C16 aquatic mobs: dolphin/cod/salmon/tropical fish/pufferfish, bucket catch/release |
+| `src/trident.js` | C17 trident: throw/retrieve/durability/damage + Loyalty/Riptide/Channeling/Impaling |
 
 ## World generation (C03)
 
@@ -111,6 +115,23 @@ proves reproducibility.
 ## I1 — Integration, public deploy, performance & evidence (C01/C19/C20)
 
 **Public HTTPS** (no login, no install): <https://wuswufei0409.github.io/test11/>  — served from `main` via GitHub Actions (Pages). Asserted non-official/independent.
+
+## W5 — Water, oceans, aquatic life & trident (C14/C15/C16/C17)
+
+Fresh module on top of the integrated W1–I1 baseline, **now fully unit-tested (131 tests) and browser-verified**.
+
+**C14 water core** (`src/water.js`): a head-submersion **oxygen tank** drives a HUD oxygen bar and **drowning** (periodic drown damage at zero air, refills in air); sprint-swimming is faster than normal swim; a **1×1 waterway is passable**; dropped items **float up and bob at the surface**; underwater **visibility fog** deepens with depth; and placing a solid block underwater obeys an **air-hole rule** (no leaky pocket).
+
+**C15 ocean content** (`src/ocean.js` + `src/worldgen.js`): deterministic **coral reefs, kelp beds, seagrass, icebergs, shipwrecks, underwater ruins and buried treasure** generated into ocean biomes, plus a **treasure clue** (bearing + distance) leading to a **diggable gold/diamond reward**.
+
+**C16 aquatic mobs** (`src/aquatic.js`): **dolphin / cod / salmon / tropical fish / pufferfish** with drift/swim/bob AI; fish can be **caught with a water bucket and released** back into water; **pufferfish inflate near the player** and sting on contact.
+
+**C17 trident** (`src/trident.js`): a throwable **trident** with **retrieve-on-loyalty, durability, and damage** and three+ enchantments — **Loyalty** (returns to thrower), **Riptide** (launches in water), **Channeling** (lightning on thunder) and **Impaling** (bonus vs aquatic).
+
+Run the W5 evidence harness:
+```bash
+node scripts/smoke_w5.cjs   # needs a dev/preview server on :5202 -> evidence/w5_underwater.png
+```
 
 **How to run**
 ```bash

@@ -51,13 +51,15 @@ export class Player {
     if (mag > 0) { mx /= mag; mz /= mag; }
 
     const speed = this.sprinting ? 8.2 : this.sneaking ? 2.2 : 4.3;
-    const move = { x: mx * speed, z: mz * speed };
+    const inFluid = this.inFluid();
+    const effSpeed = inFluid && this.sprinting ? 9.6 : speed; // sprint-swim faster (C14)
+    const move = { x: mx * effSpeed, z: mz * effSpeed };
 
     this.vel.x = move.x;
     this.vel.z = move.z;
     this.vel.y -= 27 * dt;
 
-    if (this.inFluid()) {
+    if (inFluid) {
       this.swimming = true;
       this.vel.y = Math.max(this.vel.y, this.keys['Space'] ? 6 : this.keys['ShiftLeft'] ? -4 : 0.6);
       this.vel.y += (this.keys['Space'] ? 2 : 0) * dt;

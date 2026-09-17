@@ -10,6 +10,7 @@ export function buildHUD() {
       <div id="hearts" class="bar-row"></div>
       <div id="food" class="bar-row"></div>
       <div id="armor" class="bar-row"></div>
+      <div id="oxygen" class="bar-row"></div>
     </div>
     <div id="coords"></div>
     <div id="fps"></div>
@@ -35,6 +36,8 @@ export function buildHUD() {
   for (let i = 0; i < 10; i++) food.innerHTML += '<span class="cell"></span>';
   const armor = root.querySelector('#armor');
   for (let i = 0; i < 4; i++) armor.innerHTML += '<span class="cell"></span>';
+  const oxygen = root.querySelector('#oxygen');
+  for (let i = 0; i < 10; i++) oxygen.innerHTML += '<span class="cell"></span>';
 
   return {
     root,
@@ -59,6 +62,8 @@ export function buildHUD() {
     setHearts(v) { this.setBar('#hearts', v, 10); },
     setFood(v) { this.setBar('#food', v, 10); },
     setArmor(v) { this.setBar('#armor', v, 4); },
+    setOxygen(v) { this.setBar('#oxygen', v, 10); },
+    oxygenVisible(show) { root.querySelector('#oxygen').style.display = show ? 'flex' : 'none'; },
     setBar(sel, val, max) {
       const cells = root.querySelector(sel).querySelectorAll('.cell');
       const filled = Math.round(val / 20 * max);
@@ -116,6 +121,8 @@ export const HUD_CSS = `
 #hearts .cell.full{background:#e33}
 #food .cell.full{background:#c78c3f}
 #armor .cell.full{background:#b5c2cf}
+#oxygen .cell.full{background:#4aa3df}
+#oxygen{display:none}
 #coords{position:absolute;right:12px;top:8px;font-size:14px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px}
 #fps{position:absolute;left:12px;top:8px;font-size:14px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px}
 #seedbox{position:absolute;left:12px;top:36px;font-size:12px;background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px}

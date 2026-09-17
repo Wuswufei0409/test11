@@ -74,6 +74,27 @@ const DEFS = [
   { id: 123, name: 'bow',        color: [140,95,55], hardness: 0, solid: false, opaque: false, item: true },
   { id: 124, name: 'leather_armor', color: [170,130,80], hardness: 0, solid: false, opaque: false, item: true },
   { id: 125, name: 'iron_armor', color: [210,210,215], hardness: 0, solid: false, opaque: false, item: true },
+  // ---- C14/C15 aquatic blocks (44-51) ----
+  { id: 44, name: 'coral_block', top: [214,96,70], side: [214,96,70], bot: [214,96,70], hardness: 0.9, solid: true, opaque: true },
+  { id: 45, name: 'coral_plant', top: [214,96,70], side: [150,70,54], bot: [150,70,54], hardness: 0.1, solid: false, opaque: false, plant: true, water: true },
+  { id: 46, name: 'kelp', top: [64,150,60], side: [48,120,50], bot: [48,120,50], hardness: 0.1, solid: false, opaque: false, plant: true, water: true },
+  { id: 47, name: 'seagrass', top: [70,160,70], side: [54,130,58], bot: [54,130,58], hardness: 0.1, solid: false, opaque: false, plant: true, water: true },
+  { id: 48, name: 'treasure', top: [200,170,60], side: [150,120,70], bot: [150,120,70], hardness: 1.2, solid: true, opaque: true },
+  { id: 49, name: 'wreck_planks', top: [140,104,66], side: [120,88,56], bot: [120,88,56], hardness: 2.0, solid: true, opaque: true },
+  { id: 50, name: 'iceberg_ice', top: [190,220,240], side: [170,205,230], bot: [170,205,230], hardness: 0.6, solid: true, opaque: true },
+  { id: 51, name: 'hidden_treasure', top: [150,120,70], side: [120,92,54], bot: [120,92,54], hardness: 1.2, solid: true, opaque: true },
+  // ---- C16 aquatic fish/items (126-134) ----
+  { id: 126, name: 'cod',      color: [150,110,70],  hardness: 0, solid: false, opaque: false, item: true, food: 2 },
+  { id: 127, name: 'salmon',   color: [240,130,120], hardness: 0, solid: false, opaque: false, item: true, food: 2 },
+  { id: 128, name: 'tropical_fish', color: [250,190,90], hardness: 0, solid: false, opaque: false, item: true, food: 1 },
+  { id: 129, name: 'pufferfish', color: [210,190,90], hardness: 0, solid: false, opaque: false, item: true, food: 1 },
+  { id: 130, name: 'trident', color: [110,180,190], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 131, name: 'cod_bucket',   color: [130,140,170], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 132, name: 'salmon_bucket',   color: [220,150,140], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 133, name: 'tropicalfish_bucket', color: [235,190,120], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 134, name: 'pufferfish_bucket', color: [200,190,120], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 135, name: 'water_bucket', color: [60,110,200], hardness: 0, solid: false, opaque: false, item: true },
+  { id: 136, name: 'treasure_map', color: [230,190,120], hardness: 0, solid: false, opaque: false, item: true },
 ];
 
 export const BLOCKS = DEFS.map((d) => ({ ...d }));

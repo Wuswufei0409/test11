@@ -3,6 +3,7 @@
 
 import { fbm2, hash2, hash3, mulberry32 } from './math.js';
 import { BLOCK_BY_NAME, BLOCK_BY_ID, isSolid, isFluid } from './blocks.js';
+import { oceanFeatureBlocks } from './ocean.js';
 
 export const CHUNK = 16;
 export const WORLD_HEIGHT = 96;
@@ -260,6 +261,30 @@ export function generateChunk(cx, cz, seed) {
         else {
           const p = plantAt(wx, wz, seed, biome, elevation);
           if (p && chunk.get(wx & 15, elevation, wz & 15) !== 0) chunk.setRaw(lx, elevation + 1, lz, p);
+        }
+      }
+    }
+  }
+
+  // ---- C15 ocean features (coral / kelp / seagrass / icebergs / wrecks / ruins / treasure) ----
+  for (let lx = 0; lx < CHUNK; lx++) {
+    for (let lz = 0; lz < CHUNK; lz++) {
+      const wx = baseX + lx;
+      const wz = baseZ + lz;
+      const { biome, elevation } = biomeColumns.get(lx * CHUNK + lz);
+      const isOcean = biome === 'ocean_warm' || biome === 'ocean_shallow' ||
+                      biome === 'ocean_deep' || biome === 'ocean_cold';
+      if (!isOcean) continue;
+      const blocks = oceanFeatureBlocks(wx, wz, seed, biome, elevation, blockId);
+      for (const b of blocks) {
+        if (b.id === 0) continue;
+        // never overwrite bedrock; ignore features that would poke above the surface air
+        if (b.y < 1) continue;
+        if (chunk.get(b.x & 15, b.y, b.z & 15) === blockId('water') ||
+            chunk.get(b.x & 15, b.y, b.z & 15) === blockId('sand') ||
+            chunk.get(b.x & 15, b.y, b.z & 15) === blockId('gravel') ||
+            chunk.get(b.x & 15, b.y, b.z & 15) === blockId('stone')) {
+          chunk.setWorld(b.x, b.y, b.z, b.id);
         }
       }
     }
