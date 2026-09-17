@@ -21,7 +21,7 @@ import { craftRecipe as craftOne } from './crafting.js';
 import { Furnace, fuelSeconds, smeltResult } from './furnace.js';
 import { buildCraftingPanel, buildFurnaceUI, buildSaveLoadUI, collectSnapshot, applySnapshot, installPanelsCss } from './w3_panels.js';
 import { loadGame, saveGame, localStorageAdapter } from './save.js';
-import { itemId, itemName } from './items.js';
+import { itemId, itemName, itemDef } from './items.js';
 
 export function initGame({ seed }) {
   const container = document.getElementById('app');
@@ -280,8 +280,9 @@ export function initGame({ seed }) {
   }
   function blockColor3(id) {
     const d = blockDef(id);
-    if (!d) return [1, 1, 1];
-    const [r, g, b] = d.side;
+    const rgb = (d && (d.side || d.color)) || (itemDef(id) ? itemDef(id).color : null);
+    if (!rgb) return [1, 1, 1];
+    const [r, g, b] = rgb;
     return [r / 255, g / 255, b / 255];
   }
   function updateDrops(dt) {
