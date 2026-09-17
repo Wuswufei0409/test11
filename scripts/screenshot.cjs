@@ -58,14 +58,15 @@ async function main() {
   });
   console.log('LEGIBLE_STATS', JSON.stringify(px));
 
-  // also capture after moving the camera/looking at terrain from above
+  // also capture a top-down terrain view (freeze the loop so the camera stays)
   await page.evaluate(() => {
+    window.__GAME_PAUSED__ = true;
     const g = window.__GAME__;
-    g.camera.position.set(0, 80, 0);
-    g.camera.rotation.set(-Math.PI / 2.2, 0, 0);
+    g.camera.position.set(g.spawn.x, 95, g.spawn.z);
+    g.camera.rotation.set(-Math.PI / 2, 0, 0);
     g.renderer.render(g.scene, g.camera);
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(60);
   await page.screenshot({ path: 'evidence/w1_topdown.png' });
 
   console.log('CONSOLE_ERRORS', JSON.stringify(consoleErrors));

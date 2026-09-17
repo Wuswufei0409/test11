@@ -22,7 +22,7 @@ export function initGame({ seed }) {
   const spawn = findSafeSpawn(seed);
 
   const player = new Player(world, spawn);
-  player.pitch = -0.35; // look slightly down at terrain on spawn
+  player.pitch = -0.62; // look down enough that sky + green voxel landscape both fill the frame
   const hud = buildHUD();
   hud.setSeed(seed);
 
@@ -154,6 +154,7 @@ export function initGame({ seed }) {
   let highlightTarget = null;
 
   function loop() {
+    if (window.__GAME_PAUSED__) return; // freeze for evidence capture
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -205,5 +206,5 @@ export function initGame({ seed }) {
   window.addEventListener('resize', () => onResize(renderer, camera, container));
   requestAnimationFrame(loop);
 
-  return { world, player, scene, camera, renderer, select, spawn, hotbar };
+  return { world, player, scene, camera, renderer, select, spawn, hotbar, hand, meshGroup };
 }

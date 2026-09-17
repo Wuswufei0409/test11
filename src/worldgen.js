@@ -2,7 +2,7 @@
 // Biomes: plains, forest, desert, mountains + cold/shallow/warm/deep oceans. Same seed => same terrain.
 
 import { fbm2, hash2, hash3, mulberry32 } from './math.js';
-import { BLOCK_BY_NAME, BLOCK_BY_ID, isSolid } from './blocks.js';
+import { BLOCK_BY_NAME, BLOCK_BY_ID, isSolid, isFluid } from './blocks.js';
 
 export const CHUNK = 16;
 export const WORLD_HEIGHT = 96;
@@ -283,11 +283,13 @@ export function terrainFingerprint(seed, samples = 64, spread = 480) {
 }
 
 /**
- * Robustly find a safe land spawn near the world origin: a land column (elevation >= SEA_LEVEL)
- * whose player-sized headspace (feet..feet+2) is clear of solid blocks (avoids tree trunks and
- * ocean-only spawn regions). Deterministic for a seed. Pure — uses generateChunk + isSolid.
+ * Robustly find a safe, open land spawn: a land column (elevation >= SEA_LEVEL) whose
+ * player-sized headspace (feet..feet+2) is clear of solid blocks, whose facing corridor
+ * (eye-height, -Z for yaw 0) is open for SIGHT blocks so the first-person view composes
+ * sky-over-terrain rather than a wall of near foliage (C02). Prefers open biomes
+ * (plains/desert) to avoid dense forests / steep mountains. Deterministic per seed.
  */
-export function findSafeSpawn(seed, maxRadius = 420, step = 4) {
+export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
   const chunkCache = new Map();
   const getBlock = (wx, y, wz) => {
     if (y < 0) return BLOCK_BY_ID.get('bedrock');
@@ -301,22 +303,72 @@ export function findSafeSpawn(seed, maxRadius = 420, step = 4) {
     const bz = ((wz % CHUNK) + CHUNK) % CHUNK;
     return c.data[((y * CHUNK) + bz) * CHUNK + bx];
   };
+  const topSolid = (px, pz) => {
+    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) if (isSolid(getBlock(px, y, pz))) return y;
+    return -1;
+  };
+  const headClear = (px, pz, top) => {
+    const feet = top + 2;
+    for (let yy = feet; yy <= feet + 2; yy++) if (isSolid(getBlock(px, yy, pz))) return false;
+    return true;
+  };
+  const surfaceHeight = (px, pz) => {
+    // highest solid block with air above its face (an exposed land surface, not under water)
+    let st = -1;
+    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
+      if (isSolid(getBlock(px, y, pz)) && !isFluid(getBlock(px, y + 1, pz))) { st = y; break; }
+    }
+    return st;
+  };
+  // pick the cardinal direction with open sightline AND a drop over exposed LAND ahead
+  // (a gentle overlook so the lower frame fills with voxel terrain, not an empty-sky horizon or ocean)
+  const bestSight = (px, pz, eyeY) => {
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    let best = null;
+    for (const [dx, dz] of dirs) {
+      let k = 0;
+      for (; k <= sight; k++) {
+        const wx = px + dx * k, wz = pz + dz * k;
+        if (isSolid(getBlock(wx, eyeY, wz)) || isSolid(getBlock(wx, eyeY - 1, wz))) break;
+      }
+      if (k < 8) continue;
+      let drop = 0, sampled = 0;
+      for (let j = 6; j <= 24; j += 3) {
+        const st = surfaceHeight(px + dx * j, pz + dz * j);
+        if (st < 0) continue; // not exposed land -> skip (avoids dropping into ocean)
+        drop += eyeY - st; sampled++;
+      }
+      if (sampled < 4) continue; // need mostly exposed land ahead
+      drop /= sampled;
+      if (best === null || drop > best.drop) best = { len: k, drop, dx, dz };
+    }
+    return best;
+  };
+  const best = { dist: Infinity, spawn: null };
   for (let r = 0; r <= maxRadius; r += step) {
-    const points = [];
-    for (let dx = -r; dx <= r; dx += step) { points.push([dx, -r], [dx, r]); }
-    for (let dz = -r; dz <= r; dz += step) { points.push([-r, dz], [r, dz]); }
-    for (const [px, pz] of points) {
+    const pts = [];
+    for (let dx = -r; dx <= r; dx += step) { pts.push([dx, -r], [dx, r]); }
+    for (let dz = -r; dz <= r; dz += step) { pts.push([-r, dz], [r, dz]); }
+    for (const [px, pz] of pts) {
       const c = columnInfo(px, pz, seed);
       if (c.elevation < SEA_LEVEL) continue;
-      let top = -1;
-      for (let y = WORLD_HEIGHT - 1; y >= 0; y--) { if (isSolid(getBlock(px, y, pz))) { top = y; break; } }
-      if (top < 0) continue;
-      const feet = top + 2;
-      let clear = true;
-      for (let yy = feet; yy <= feet + 2; yy++) { if (isSolid(getBlock(px, yy, pz))) { clear = false; break; } }
-      if (!clear) continue;
-      return { x: px + 0.5, y: feet, z: pz + 0.5, yaw: 0, surfaceY: top, biome: c.biome };
+      const open = c.biome === BIOMES.PLAINS || c.biome === BIOMES.DESERT || c.biome === BIOMES.MOUNTAINS;
+      if (!open) continue;
+      const top = topSolid(px, pz);
+      if (top < 0 || top - c.elevation > 2) continue; // on ground, not a tree/pillar
+      if (!headClear(px, pz, top)) continue;
+      const eye = top + 4;
+      const s = bestSight(px, pz, eye);
+      if (!s || s.drop < 2) continue; // need a visible land drop-ahead (overlook)
+      const d = Math.hypot(px, pz);
+      if (d < best.dist) {
+        const yaw = Math.atan2(-s.dx, -s.dz);
+        best.dist = d;
+        best.spawn = { x: px + 0.5, y: top + 2, z: pz + 0.5, yaw, surfaceY: top, biome: c.biome, sight: s.len, drop: s.drop };
+      }
     }
+    if (best.spawn) return best.spawn;
   }
-  return { x: 0.5, y: SEA_LEVEL + 8, z: 0.5, yaw: 0, surfaceY: SEA_LEVEL, biome: BIOMES.OCEAN_SHALLOW };
+  if (best.spawn) return best.spawn;
+  return { x: 0.5, y: SEA_LEVEL + 8, z: 0.5, yaw: 0, surfaceY: SEA_LEVEL, biome: BIOMES.PLAINS };
 }

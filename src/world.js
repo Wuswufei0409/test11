@@ -128,8 +128,6 @@ export class World {
     const uvs = [];
     const colors = [];
     const indices = [];
-    const watPos = [], watInd = [], watCol = [];
-    const opaqueIds = [];
     let vert = 0;
 
     for (let bx = 0; bx < CHUNK; bx++) {
@@ -173,57 +171,38 @@ export class World {
             }
             // two triangles
             indices.push(cornerIdx[0], cornerIdx[1], cornerIdx[2], cornerIdx[1], cornerIdx[3], cornerIdx[2]);
-            opaqueIds.push(idv);
           }
         }
       }
     }
 
     // fluid (water) pass: only a flat-ish top + sides against air
+    const wPos = [], wCol = [], wNrm = [], wIdx = [];
     for (let bx = 0; bx < CHUNK; bx++) {
       for (let bz = 0; bz < CHUNK; bz++) {
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           const idv = c.data[((y * CHUNK) + bz) * CHUNK + bx];
           if (!isFluid(idv)) continue;
           const wx = baseX + bx, wz = baseZ + bz;
-          const wv = [];
           for (let f = 0; f < 6; f++) {
             const face = FACES[f];
             const nx = wx + face.dir[0], ny = y + face.dir[1], nz = wz + face.dir[2];
             const neighbor = this.getBlock(nx, ny, nz);
-            // water renders top face to sky and sides against air or non-fluid
-            if (f === 2 && neighbor === 0) { /* top */ }
-            else if (f !== 2 && (neighbor === 0 || !isFluid(neighbor) && !isSolid(neighbor))) { /* side/edge */ }
+            if (f === 2 && neighbor === 0) { /* top face exposed to air */ }
+            else if (f !== 2 && (neighbor === 0 || (!isFluid(neighbor) && !isSolid(neighbor)))) { /* side/edge */ }
             else continue;
-            const cc = 0.6 + face.shade * 0.3;
+            const cc = 0.62 + face.shade * 0.28;
+            const b0 = wPos.length / 3;
             for (const cpos of face.corners) {
-              wv.push(bx + cpos[0], y + cpos[1], bz + cpos[2], cc, cc, cc);
+              wPos.push(bx + cpos[0], y + cpos[1], bz + cpos[2]);
+              wCol.push(cc, cc, cc);
+              wNrm.push(face.n[0], face.n[1], face.n[2]);
             }
-          }
-          if (wv.length) {
-            const b0 = watPos.length / 6;
-            for (let i = 0; i < wv.length; i += 6) watPos.push(wv[i], wv[i + 1], wv[i + 2], wv[i + 3], wv[i + 4], wv[i + 5]);
-            // indices
-            const base = b0;
-            for (let s = 0; s < wv.length / 6; s += 4) {
-              watInd.push(base+s, base+s+1, base+s+2, base+s+1, base+s+3, base+s+2);
-            }
+            wIdx.push(b0, b0 + 1, b0 + 2, b0 + 1, b0 + 3, b0 + 2);
           }
         }
       }
     }
-
-    const makeGeo = (pos, ind, col) => {
-      const THREE = this.THREE;
-      const g = new THREE.BufferGeometry();
-      const posArr = new Float32Array(pos.length);
-      const colArr = new Float32Array(col.length);
-      for (let i = 0; i < pos.length; i++) { posArr[i] = pos[i]; colArr[i] = col[i]; }
-      g.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
-      g.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
-      g.setIndex(ind);
-      return g;
-    };
 
     const group = new (this.THREE.Group)();
     group.name = k;
@@ -242,11 +221,15 @@ export class World {
       group.add(mesh);
     }
 
-    if (watPos.length) {
+    if (wPos.length) {
       const THREE = this.THREE;
-      const geo = makeGeo(watPos, watInd, watCol);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(wPos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(wNrm, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(wCol, 3));
+      geo.setIndex(wIdx);
       const mat = new THREE.MeshLambertMaterial({
-        color: 0x3f6fd0, transparent: true, opacity: 0.72,
+        color: 0x3f6fd0, transparent: true, opacity: 0.7,
         side: this.THREE.DoubleSide, depthWrite: false,
       });
       const mesh = new THREE.Mesh(geo, mat);
