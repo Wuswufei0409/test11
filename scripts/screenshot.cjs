@@ -19,13 +19,16 @@ async function main() {
   console.log('HEALTH', JSON.stringify(health));
 
   // dismiss the menu overlay; aim the natural spawn to a legible sky-over-terrain view that
-  // locks the crosshair onto nearby dry ground (grass) -> non-water target label (C02)
+  // locks the crosshair onto nearby dry ground (grass/dirt, non-water) -> visible target label (C02).
+  // findSafeSpawn now guarantees the spawn's OWN forward direction has a reachable non-water
+  // terrain block, so use the spawn's deterministic yaw with a gentle downward pitch to frame
+  // sky-over-low-terrain while the crosshair labels terrain (NOT a forest/mountain/water wall).
   await page.evaluate(() => {
     const g = window.__GAME__;
     window.__GAME_PAUSED__ = true;
-    g.player.pitch = 0.5;
-    g.player.yaw = 0;
-    g.camera.rotation.set(0.5, 0, 0);
+    g.player.yaw = g.spawn.yaw;
+    g.player.pitch = 0.35;
+    g.camera.rotation.set(0.35, g.spawn.yaw, 0);
     window.__GAME_PAUSED__ = false;
     const ov = document.getElementById('menu-overlay'); if (ov) ov.remove();
   });

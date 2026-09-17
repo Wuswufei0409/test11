@@ -153,6 +153,34 @@ describe('safe spawn', () => {
       expect(waterAtFeet).toBeLessThanOrEqual(2); // deep land, no surrounding water basin
     }
   });
+  it('C02 spawn forward view has a reachable non-water terrain label near the crosshair (fixed seed)', () => {
+    // The first-person default view must label a real terrain block (grass/dirt/stone/sand, not
+    // foliage/water/ice/fog) so the HUD shows a readable non-water target under the crosshair.
+    const FOLIAGE = new Set([12, 13, 14, 15, 25, 26, 27, 16, 28]); // leaves/logs/plants
+    const g = (seed, x, y, z) => {
+      const cc = generateChunk(Math.floor(x / CHUNK), Math.floor(z / CHUNK), seed);
+      return cc.get(x & 15, y, z & 15);
+    };
+    for (const seed of [SEED, SEED + 1, 12345]) {
+      const s = findSafeSpawn(seed);
+      const { biome } = columnInfo(Math.floor(s.x), Math.floor(s.z), seed);
+      expect([BIOMES.PLAINS, BIOMES.DESERT]).toContain(biome); // open biome, not a mountain wall
+      const eye = Math.floor(s.surfaceY) + 4;
+      const px = Math.floor(s.x), pz = Math.floor(s.z);
+      const dx = -Math.sin(s.yaw), dz = -Math.cos(s.yaw);
+      let labelBlock = 0, labelDist = -1;
+      for (let d = 1; d <= 5 && labelDist < 0; d++) {
+        for (let yy = eye - 3; yy <= eye; yy++) {
+          const b = g(seed, px + Math.round(dx * d), yy, pz + Math.round(dz * d));
+          if (b !== 0 && isSolid(b) && b !== blockId('water') && b !== blockId('ice') && !FOLIAGE.has(b)) {
+            labelBlock = b; labelDist = d; break;
+          }
+        }
+      }
+      expect(labelBlock, `seed ${seed} reachable terrain label`).toBeGreaterThan(0);
+      expect(labelDist).toBeLessThanOrEqual(5);
+    }
+  });
   it('findSafeSpawn avoids the origin ocean basin', () => {
     const s = findSafeSpawn(SEED);
     const d = Math.hypot(s.x - 0.5, s.z - 0.5);

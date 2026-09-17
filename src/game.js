@@ -22,7 +22,9 @@ export function initGame({ seed }) {
   const spawn = findSafeSpawn(seed);
 
   const player = new Player(world, spawn);
-  player.pitch = -0.62; // look down enough that sky + green voxel landscape both fill the frame
+  // mild downward pitch: frame sky over low voxel terrain AND keep a reachable non-water block
+  // in the crosshair so the first-person label is visible (C02); avoids pointing up into fog.
+  player.pitch = 0.35;
   const hud = buildHUD();
   hud.setSeed(seed);
 

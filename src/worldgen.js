@@ -335,12 +335,30 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16, minEl
     for (let y = WORLD_HEIGHT - 1; y >= 0; y--) if (isSolid(getBlock(px, y, pz))) return y;
     return -1;
   };
-  // pick the cardinal direction with an open sightline at eye height AND a gentle elevated
-  // overlook over REAL exposed land (not water), so the lower frame fills with voxel terrain.
+  // does the forward near sector hold a genuine reachable terrain block (grass/dirt/stone/sand,
+  // not foliage/logs/water/ice) so the first-person crosshair shows a non-water target label?
+  const FOLIAGE = new Set([blockId('oak_log'), blockId('oak_leaves'), blockId('spruce_log'), blockId('spruce_leaves'), blockId('birch_log'), blockId('poppy'), blockId('dandelion'), blockId('tall_grass'), blockId('cactus'), blockId('dead_bush')]);
+  const hasReachableTerrain = (px, pz, dx, dz, eyeY) => {
+    // require a terrain block reachable at MILD downward pitch: near eye height (eye-3..eye),
+    // so the first-person crosshair naturally labels grass/dirt without looking straight down.
+    for (let d = 1; d <= 5; d++) {
+      const wx = px + dx * d, wz = pz + dz * d;
+      for (let yy = eyeY - 3; yy <= eyeY; yy++) {
+        const b = getBlock(wx, yy, wz);
+        if (b !== 0 && isSolid(b) && !isFluid(b) && !FOLIAGE.has(b)) return true;
+      }
+    }
+    return false;
+  };
+
+  // pick the cardinal direction with an open sightline at eye height, a reachable non-water
+  // terrain label, AND a gentle elevated overlook over REAL exposed land (not water), so the
+  // lower frame fills with low voxel terrain while the crosshair retains a readable label.
   const bestSight = (px, pz, eyeY) => {
     const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
     let best = null;
     for (const [dx, dz] of dirs) {
+      if (!hasReachableTerrain(px, pz, dx, dz, eyeY)) continue; // need a non-water label ahead
       let k = 0;
       for (; k <= sight; k++) {
         const wx = px + dx * k, wz = pz + dz * k;
@@ -368,7 +386,8 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16, minEl
     for (const [px, pz] of pts) {
       const c = columnInfo(px, pz, seed);
       if (c.elevation < SEA_LEVEL + minElevAboveSea) continue; // must be well above the water line
-      const open = c.biome === BIOMES.PLAINS || c.biome === BIOMES.DESERT || c.biome === BIOMES.MOUNTAINS;
+      // open biomes only: plains/desert (no mountains - their walls hide the sky/horizon, C02)
+      const open = c.biome === BIOMES.PLAINS || c.biome === BIOMES.DESERT;
       if (!open) continue;
       const surfaceY = drySurface(px, pz);
       if (surfaceY < 0) continue; // must be exposed dry land above the water line
