@@ -1,0 +1,21 @@
+{
+  "name": "test11-voxel",
+  "version": "0.1.0",
+  "description": "Non-official experiment: first-person 3D voxel sandbox survival game (Web-based, targeting a Minecraft Bedrock 1.4.2-inspired experience). W1: world generation + rendering core.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0",
+    "vitest": "^1.6.0"
+  }
+}
