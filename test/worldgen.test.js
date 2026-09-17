@@ -109,6 +109,50 @@ describe('safe spawn', () => {
       expect(isSolid(cc.get(lbx, eye, lbz))).toBe(false);
     }
   });
+
+  it('C02 spawn is on dry elevated land well above the water line, with clear air above the eye (fixed seed)', () => {
+    const MIN_ABOVE = 5; // must mirror the worldgen default minElevAboveSea
+    for (const seed of [SEED, SEED + 1, 12345]) {
+      const s = findSafeSpawn(seed);
+      const { biome, elevation } = columnInfo(Math.floor(s.x), Math.floor(s.z), seed);
+      const SUR = Math.floor(s.surfaceY);
+      // (a) dry land, not an ocean column
+      expect(biome).not.toContain('ocean');
+      // (c) surface well above the water line
+      expect(SUR).toBeGreaterThanOrEqual(SEA_LEVEL + MIN_ABOVE);
+      expect(elevation).toBeGreaterThanOrEqual(SEA_LEVEL + MIN_ABOVE);
+      // (b) air above the eye is clear of solid AND fluid for 8 blocks
+      const c = generateChunk(Math.floor(s.x / CHUNK), Math.floor(s.z / CHUNK), seed);
+      const bx = Math.floor(s.x) & 15, bz = Math.floor(s.z) & 15;
+      const eye = Math.floor(s.y) + 2; // ~ surface + 1.62
+      for (let yy = eye; yy <= eye + 8; yy++) {
+        const b = c.get(bx, yy, bz);
+        expect(isSolid(b), `solid above eye at yy=${yy}`).toBe(false);
+      }
+      // the block above the surface must be air, never water (not at/under the water line)
+      expect(c.get(bx, SUR + 1, bz) === 0 || !isSolid(c.get(bx, SUR + 1, bz))).toBe(true);
+    }
+  });
+
+  it('C02 spawn is deep in dry land: a ~36-block radius has no standing water at feet', () => {
+    const g = (seed, x, y, z) => {
+      const cc = generateChunk(Math.floor(x / CHUNK), Math.floor(z / CHUNK), seed);
+      return cc.get(x & 15, y, z & 15);
+    };
+    for (const seed of [SEED, SEED + 1]) {
+      const s = findSafeSpawn(seed);
+      const SUR = Math.floor(s.surfaceY);
+      let waterAtFeet = 0;
+      for (let ox = -32; ox <= 32; ox += 8)
+        for (let oz = -32; oz <= 32; oz += 8) {
+          if ((ox === 0 && oz === 0)) continue;
+          const b = g(seed, Math.floor(s.x) + ox, SUR, Math.floor(s.z) + oz);
+          // water only counts as 'standing at feet' if it reaches above the spawn surface
+          if (b === blockId('water')) waterAtFeet++;
+        }
+      expect(waterAtFeet).toBeLessThanOrEqual(2); // deep land, no surrounding water basin
+    }
+  });
   it('findSafeSpawn avoids the origin ocean basin', () => {
     const s = findSafeSpawn(SEED);
     const d = Math.hypot(s.x - 0.5, s.z - 0.5);

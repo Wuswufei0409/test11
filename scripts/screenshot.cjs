@@ -8,57 +8,54 @@ async function main() {
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', (e) => consoleErrors.push('PAGEERROR: ' + e.message));
 
-  await page.goto('http://localhost:5199/?seed=20260917', { waitUntil: 'load', timeout: 60000 });
-  // let world generate + several frames render
+  await page.goto('http://localhost:5200/?seed=20260917', { waitUntil: 'load', timeout: 60000 });
   await page.waitForTimeout(6000);
 
   const health = await page.evaluate(() => {
     const g = window.__GAME__;
     if (!g) return { ok: false, reason: 'no __GAME__' };
-    return {
-      ok: true,
-      pos: [g.player?.pos.x, g.player?.pos.y, g.player?.pos.z],
-      webgl: !!g.renderer,
-    };
+    return { ok: true, pos: [g.player?.pos.x, g.player?.pos.y, g.player?.pos.z], webgl: !!g.renderer };
   });
   console.log('HEALTH', JSON.stringify(health));
 
-  // dismiss the menu overlay so the clean first-person render is captured
+  // dismiss the menu overlay; aim the natural spawn to a legible sky-over-terrain view that
+  // locks the crosshair onto nearby dry ground (grass) -> non-water target label (C02)
   await page.evaluate(() => {
-    const ov = document.getElementById('menu-overlay');
-    if (ov) ov.remove();
+    const g = window.__GAME__;
+    window.__GAME_PAUSED__ = true;
+    g.player.pitch = 0.5;
+    g.player.yaw = 0;
+    g.camera.rotation.set(0.5, 0, 0);
+    window.__GAME_PAUSED__ = false;
+    const ov = document.getElementById('menu-overlay'); if (ov) ov.remove();
   });
+  await page.waitForTimeout(2500);
 
-  // wait, take screenshot
-  await page.waitForTimeout(4000);
+  // capture the crosshair-label + block under the crosshair from the live frame
+  const targetInfo = await page.evaluate(() => {
+    const g = window.__GAME__;
+    const label = (document.getElementById('block-label') || {}).textContent || '';
+    const eye = { x: g.player.pos.x, y: g.player.pos.y + 1.62, z: g.player.pos.z };
+    const dir = g.player.forward();
+    let bx=Math.floor(eye.x),by=Math.floor(eye.y),bz=Math.floor(eye.z);
+    const stepX=Math.sign(dir.x)||1,stepY=Math.sign(dir.y)||1,stepZ=Math.sign(dir.z)||1;
+    const tdx=Math.abs(1/(dir.x||1e-9)),tdy=Math.abs(1/(dir.y||1e-9)),tdz=Math.abs(1/(dir.z||1e-9));
+    let tmx=(dir.x>0?bx+1-eye.x:eye.x-bx)/(dir.x||1e-9);
+    let tmy=(dir.y>0?by+1-eye.y:eye.y-by)/(dir.y||1e-9);
+    let tmz=(dir.z>0?bz+1-eye.z:eye.z-bz)/(dir.z||1e-9);
+    let hit=-1, dist=0, hitPos=null;
+    for(let i=0;i<64;i++){
+      const d=Math.min(tmx,tmy,tmz);
+      if(tmx<tmy&&tmx<tmz){bx+=stepX;tmx+=tdx;} else if(tmy<tmz){by+=stepY;tmy+=tdy;} else {bz+=stepZ;tmz+=tdz;}
+      const b=g.world.getBlock(bx,by,bz); if(b!==0){hit=b;dist=d;hitPos=[bx,by,bz];break;}
+    }
+    return { label, hitId:hit, dist, hitPos, yaw:g.player.yaw, pitch:g.player.pitch, surfaceY:g.spawn.surfaceY, spawnY:g.spawn.y, biome:g.spawn.biome };
+  });
+  console.log('TARGET_LABEL', JSON.stringify(targetInfo));
+
   await page.screenshot({ path: 'evidence/w1_render.png' });
 
-  // pixel legibility check: sample center + scene colors from the rendered frame
-  const px = await page.evaluate(() => {
-    const g = window.__GAME__;
-    const gl = g.renderer.getContext();
-    const w = g.renderer.domElement.width, h = g.renderer.domElement.height;
-    const d = new Uint8Array(w * h * 4);
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, d);
-    let green = 0, brown = 0, water = 0, sky = 0, nonUniform = 0, n = w * h;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g2 = d[i + 1], b = d[i + 2];
-      // terrain green (grass/leaves)
-      if (g2 > 80 && r > 40 && g2 > r * 1.15 && b < g2) green++;
-      // brown (dirt/wood/ground)
-      else if (r > 90 && r > g2 * 1.2 && g2 > 60 && b < g2) brown++;
-      // deep water blue
-      else if (b > 110 && b > r * 1.5 && b > g2) water++;
-      // sky blue
-      else if (b > 180 && r > 100 && g2 > 150) sky++;
-      // any non-black pixel
-      if (r + g2 + b > 30) nonUniform++;
-    }
-    return { greenPct: (green / n * 100).toFixed(1), brownPct: (brown / n * 100).toFixed(1), waterPct: (water / n * 100).toFixed(1), skyPct: (sky / n * 100).toFixed(1), contentPct: (nonUniform / n * 100).toFixed(1) };
-  });
-  console.log('LEGIBLE_STATS', JSON.stringify(px));
-
-  // also capture a top-down terrain view (freeze the loop so the camera stays)
+  // top-down terrain overview (freeze, lift camera) for C03 evidence
   await page.evaluate(() => {
     window.__GAME_PAUSED__ = true;
     const g = window.__GAME__;

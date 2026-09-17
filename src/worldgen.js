@@ -283,13 +283,19 @@ export function terrainFingerprint(seed, samples = 64, spread = 480) {
 }
 
 /**
- * Robustly find a safe, open land spawn: a land column (elevation >= SEA_LEVEL) whose
- * player-sized headspace (feet..feet+2) is clear of solid blocks, whose facing corridor
- * (eye-height, -Z for yaw 0) is open for SIGHT blocks so the first-person view composes
- * sky-over-terrain rather than a wall of near foliage (C02). Prefers open biomes
- * (plains/desert) to avoid dense forests / steep mountains. Deterministic per seed.
+ * Robustly find a safe, open, DRY land spawn well above the water line (C02).
+ *
+ * The spawn surface must sit clearly ABOVE sea level so the camera eye (~+1.62) composes
+ * a legible sky-over-terrain frame rather than sitting at/under the water line looking out
+ * over ocean (the root cause of repeated C02 FAILs). Requirements (all deterministic):
+ *  - dry land, not a water/ocean column, elevation well above SEA_LEVEL;
+ *  - exposed solid ground with clear headspace above feet AND above the eye (~8 blocks);
+ *  - the standing column and a wide ~36-block radius are genuine land (no water/ice floor),
+ *    so the player is deep in a landmass, not on a coastal sliver;
+ *  - an open forward corridor of real terrain at eye height (no wall of near foliage/water).
+ * Prefers open biomes (plains/desert) to steer clear of dense forests. Deterministic per seed.
  */
-export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
+export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16, minElevAboveSea = 5) {
   const chunkCache = new Map();
   const getBlock = (wx, y, wz) => {
     if (y < 0) return BLOCK_BY_ID.get('bedrock');
@@ -303,25 +309,34 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
     const bz = ((wz % CHUNK) + CHUNK) % CHUNK;
     return c.data[((y * CHUNK) + bz) * CHUNK + bx];
   };
+  // Is this column standing on dry land whose exposed top is clearly above the water line?
+  // Returns the surface y (a solid block whose block above is air AND above sea level), else -1.
+  // This deliberately excludes ocean ice floors: a real surface must sit above the water line
+  // (ice sits AT sea level at 34, so an ice column's exposed-top == SEA_LEVEL is rejected).
+  const drySurface = (px, pz) => {
+    let st = -1;
+    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
+      const above = getBlock(px, y + 1, pz);
+      if (isSolid(getBlock(px, y, pz)) && !isFluid(above) && y >= SEA_LEVEL + minElevAboveSea) { st = y; break; }
+    }
+    return st;
+  };
+  const headClearAboveEye = (px, pz, surfaceY) => {
+    // player eye sits ~ surfaceY + 1.62; require a clear (non-solid, non-fluid) column of air
+    // above the eye for at least 8 blocks so the player is never boxed in by canopy/foliage.
+    const eye = Math.floor(surfaceY) + 2;
+    for (let yy = eye; yy <= eye + 8; yy++) {
+      const b = getBlock(px, yy, pz);
+      if (b !== 0 && (isSolid(b) || isFluid(b))) return false;
+    }
+    return true;
+  };
   const topSolid = (px, pz) => {
     for (let y = WORLD_HEIGHT - 1; y >= 0; y--) if (isSolid(getBlock(px, y, pz))) return y;
     return -1;
   };
-  const headClear = (px, pz, top) => {
-    const feet = top + 2;
-    for (let yy = feet; yy <= feet + 2; yy++) if (isSolid(getBlock(px, yy, pz))) return false;
-    return true;
-  };
-  const surfaceHeight = (px, pz) => {
-    // highest solid block with air above its face (an exposed land surface, not under water)
-    let st = -1;
-    for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
-      if (isSolid(getBlock(px, y, pz)) && !isFluid(getBlock(px, y + 1, pz))) { st = y; break; }
-    }
-    return st;
-  };
-  // pick the cardinal direction with open sightline AND a drop over exposed LAND ahead
-  // (a gentle overlook so the lower frame fills with voxel terrain, not an empty-sky horizon or ocean)
+  // pick the cardinal direction with an open sightline at eye height AND a gentle elevated
+  // overlook over REAL exposed land (not water), so the lower frame fills with voxel terrain.
   const bestSight = (px, pz, eyeY) => {
     const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
     let best = null;
@@ -329,16 +344,17 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
       let k = 0;
       for (; k <= sight; k++) {
         const wx = px + dx * k, wz = pz + dz * k;
-        if (isSolid(getBlock(wx, eyeY, wz)) || isSolid(getBlock(wx, eyeY - 1, wz))) break;
+        if (getBlock(wx, eyeY, wz) !== 0 && (isSolid(getBlock(wx, eyeY, wz)) || isFluid(getBlock(wx, eyeY, wz)))) break;
+        if (getBlock(wx, eyeY - 1, wz) !== 0 && (isSolid(getBlock(wx, eyeY - 1, wz)) || isFluid(getBlock(wx, eyeY - 1, wz)))) break;
       }
       if (k < 8) continue;
       let drop = 0, sampled = 0;
       for (let j = 6; j <= 24; j += 3) {
-        const st = surfaceHeight(px + dx * j, pz + dz * j);
-        if (st < 0) continue; // not exposed land -> skip (avoids dropping into ocean)
+        const st = drySurface(px + dx * j, pz + dz * j);
+        if (st < 0) continue; // not dry land ahead -> skip (avoids dropping into ocean/water)
         drop += eyeY - st; sampled++;
       }
-      if (sampled < 4) continue; // need mostly exposed land ahead
+      if (sampled < 4) continue; // need mostly dry land ahead
       drop /= sampled;
       if (best === null || drop > best.drop) best = { len: k, drop, dx, dz };
     }
@@ -351,31 +367,46 @@ export function findSafeSpawn(seed, maxRadius = 480, step = 4, sight = 16) {
     for (let dz = -r; dz <= r; dz += step) { pts.push([-r, dz], [r, dz]); }
     for (const [px, pz] of pts) {
       const c = columnInfo(px, pz, seed);
-      if (c.elevation < SEA_LEVEL) continue;
+      if (c.elevation < SEA_LEVEL + minElevAboveSea) continue; // must be well above the water line
       const open = c.biome === BIOMES.PLAINS || c.biome === BIOMES.DESERT || c.biome === BIOMES.MOUNTAINS;
       if (!open) continue;
+      const surfaceY = drySurface(px, pz);
+      if (surfaceY < 0) continue; // must be exposed dry land above the water line
       const top = topSolid(px, pz);
       if (top < 0 || top - c.elevation > 2) continue; // on ground, not a tree/pillar
-      if (!headClear(px, pz, top)) continue;
-      // land-interior: a ~36-block radius must be exposed land so the player is deep in a landmass,
-      // NOT on a thin coastal sliver where water can dominate the view (reviewer C02)
+      if (!headClearAboveEye(px, pz, surfaceY)) continue;
+      // land-interior: a ~36-block radius must be DRY land so the player is deep in a landmass,
+      // NOT on a coastal sliver or frozen ocean where water/ice can dominate the view.
       let landNear = 0, landFar = 0, landWide = 0;
-      for (const [ox, oz] of [[-6,0],[6,0],[0,-6],[0,6],[-4,-4],[4,4],[-4,4],[4,-4]]) landNear += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
-      for (const [ox, oz] of [[-18,0],[18,0],[0,-18],[0,18],[-12,-12],[12,12],[-12,12],[12,-12]]) landFar += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
-      for (let ox = -32; ox <= 32; ox += 8) for (let oz = -32; oz <= 32; oz += 8) landWide += surfaceHeight(px + ox, pz + oz) >= 0 ? 1 : 0;
-      if (landNear < 7 || landFar < 6 || landWide < 60) continue; // must be surrounded by land
+      for (const [ox, oz] of [[-6,0],[6,0],[0,-6],[0,6],[-4,-4],[4,4],[-4,4],[4,-4]]) landNear += drySurface(px + ox, pz + oz) >= 0 ? 1 : 0;
+      for (const [ox, oz] of [[-18,0],[18,0],[0,-18],[0,18],[-12,-12],[12,12],[-12,12],[12,-12]]) landFar += drySurface(px + ox, pz + oz) >= 0 ? 1 : 0;
+      for (let ox = -32; ox <= 32; ox += 8) for (let oz = -32; oz <= 32; oz += 8) landWide += drySurface(px + ox, pz + oz) >= 0 ? 1 : 0;
+      if (landNear < 7 || landFar < 6 || landWide < 60) continue; // must be surrounded by dry land
       const eye = top + 4;
       const s = bestSight(px, pz, eye);
-      if (!s || s.drop < 2) continue; // need a visible land drop-ahead (overlook)
+      if (!s || s.drop < 2) continue; // need a visible dry-land drop-ahead (elevated overlook)
       const d = Math.hypot(px, pz);
       if (d < best.dist) {
         const yaw = Math.atan2(-s.dx, -s.dz);
         best.dist = d;
-        best.spawn = { x: px + 0.5, y: top + 2, z: pz + 0.5, yaw, surfaceY: top, biome: c.biome, sight: s.len, drop: s.drop };
+        best.spawn = { x: px + 0.5, y: top + 2, z: pz + 0.5, yaw, surfaceY: top, biome: c.biome, sight: s.len, drop: s.drop, eyeClear: true };
       }
     }
     if (best.spawn) return best.spawn;
   }
   if (best.spawn) return best.spawn;
-  return { x: 0.5, y: SEA_LEVEL + 8, z: 0.5, yaw: 0, surfaceY: SEA_LEVEL, biome: BIOMES.PLAINS };
+  // Final fallback: lift the candidate onto the highest nearby dry land above sea level.
+  for (let r = 0; r <= maxRadius; r += step) {
+    for (const [px, pz] of [...Array.from({ length: Math.ceil(2 * r / step) + 1 }, (_, i) => [-r + i * step, -r]), ...Array.from({ length: Math.ceil(2 * r / step) + 1 }, (_, i) => [-r + i * step, r])]) {
+      const surfaceY = drySurface(px, pz);
+      if (surfaceY < 0) continue;
+      if (!headClearAboveEye(px, pz, surfaceY)) continue;
+      const top = topSolid(px, pz);
+      const s = bestSight(px, pz, top + 4);
+      if (!s) continue;
+      const yaw = Math.atan2(-s.dx, -s.dz);
+      return { x: px + 0.5, y: top + 2, z: pz + 0.5, yaw, surfaceY: top, biome: columnInfo(px, pz, seed).biome, sight: s.len, drop: s.drop, eyeClear: true };
+    }
+  }
+  return { x: 0.5, y: SEA_LEVEL + minElevAboveSea + 2, z: 0.5, yaw: 0, surfaceY: SEA_LEVEL + minElevAboveSea, biome: BIOMES.PLAINS };
 }
